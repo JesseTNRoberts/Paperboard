@@ -4,7 +4,7 @@ A storyboard for academic papers and grant proposals. Sections run left to right
 
 The project itself lives in a folder of plain files on your computer. Claude (in the desktop app) reads and changes the same files; when it writes `claude-reload.txt`, the board refreshes in place, highlights what changed, and merges Claude's edits with whatever you were typing. There is no AI inside the app.
 
-**Open it:** https://jessetnroberts.github.io/paperboard/ in Chrome or Edge (it needs the File System Access API). Choose **New project**, or **Open a project folder**.
+**Open it:** https://jessetnroberts.com/Paperboard/ in Chrome or Edge (it needs the File System Access API). Choose **New project**, or **Open a project folder**.
 
 ## What's in a project folder
 
