@@ -439,6 +439,17 @@ with sync_playwright() as p:
     ev("""async () => { const p = 'sample/export/overleaf/main.tex'; await T.write(p, (await T.read(p)).replace('[width=\\\\linewidth]{figures/calibration_error.pdf}', '[width=0.8\\\\linewidth]{figures/calibration_error.pdf}')); }""")
     ok = wait_file("sample/Beats/Figure 1 calibration error.md", "t.includes('Overleaf edit') && t.includes('0.8')")
     check("a figure edited in Overleaf: its LaTeX goes into the beat's Notes", ok)
+    # a very wide figure spans both columns, at \textwidth; Wide: no keeps it in one
+    ev("""async () => { await T.write('sample/figures/wide_panel.pdf', '%PDF-1.4\\n1 0 obj << /Type /Page /MediaBox [0 0 900 250] >> endobj\\n%%EOF\\n');
+      await T.write('sample/Beats/Wide panel.md', 'ID: b-wide01\\nType: Figure\\nStatus:\\nOutput: figures/wide_panel.pdf\\nSynopsis: A wide panel.\\n\\nClaude adjust:\\n\\n---\\n\\nFour panels side by side.\\n'); await T.touch('sample'); }""")
+    ok = wait_file("sample/export/overleaf/main.tex", "t.includes('\\\\includegraphics[width=\\\\textwidth]{figures/wide_panel.pdf}')")
+    olm = ev("() => T.read('sample/export/overleaf/main.tex')")
+    seg = olm[olm.find("(b-wide01)"):][:400]
+    check("a very wide figure goes in figure* at \\textwidth", ok and "\\begin{figure*}" in seg and "\\end{figure*}" in seg, seg)
+    check("an ordinary figure stays in one column", "\\begin{figure}[t]\n  \\centering\n  \\includegraphics[width=0.8\\linewidth]" in olm or "\\begin{figure}[t]" in olm[olm.find("(b-fig1)"):][:200], olm[olm.find("(b-fig1)"):][:200])
+    ev("""async () => { const p = 'sample/Beats/Wide panel.md'; await T.write(p, (await T.read(p)).replace('Status:\\n', 'Status:\\nWide: no\\n')); await T.touch('sample'); }""")
+    ok = wait_file("sample/export/overleaf/main.tex", "t.includes('\\\\includegraphics[width=\\\\linewidth]{figures/wide_panel.pdf}')")
+    check("Wide: no keeps a wide figure in one column", ok)
 
     check("no script errors", not errors, errors)
 

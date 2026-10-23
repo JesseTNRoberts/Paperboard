@@ -9,8 +9,8 @@ const OUTCOMES = ["not run", "supports", "refutes", "inconclusive"];
 const LINKED_TYPES = ["Figure", "Table", "Experiment"];
 const TYPE_FIELDS = {   // the header fields each type's tab edits, in order
   Paragraph: [["Words", "Target length in words (optional)"]],
-  Figure: [["Output", "figures/name.pdf, figures/name.png"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line. A longer caption goes in the Beat tab."]],
-  Table: [["Output", "figures/name.csv or .md or .tex"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line."]],
+  Figure: [["Output", "figures/name.pdf, figures/name.png"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line. A longer caption goes in the Beat tab."], ["Wide", "auto: very wide images span both columns; or yes / no"]],
+  Table: [["Output", "figures/name.csv or .md or .tex"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line."], ["Wide", "yes to span both columns"]],
   Experiment: [["Hypothesis", "What the run should show"], ["Code", "code/experiments/name"], ["Run", "The exact command, e.g. make name"], ["Last run", "run-id (YYYY-MM-DD)"], ["Outcome", ""]],
   References: [["Question", "What the literature must establish"], ["Keys", "BibTeX keys, comma-separated"]]
 };

@@ -2214,8 +2214,8 @@ const OUTCOMES = ["not run", "supports", "refutes", "inconclusive"];
 const LINKED_TYPES = ["Figure", "Table", "Experiment"];
 const TYPE_FIELDS = {   // the header fields each type's tab edits, in order
   Paragraph: [["Words", "Target length in words (optional)"]],
-  Figure: [["Output", "figures/name.pdf, figures/name.png"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line. A longer caption goes in the Beat tab."]],
-  Table: [["Output", "figures/name.csv or .md or .tex"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line."]],
+  Figure: [["Output", "figures/name.pdf, figures/name.png"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line. A longer caption goes in the Beat tab."], ["Wide", "auto: very wide images span both columns; or yes / no"]],
+  Table: [["Output", "figures/name.csv or .md or .tex"], ["Script", "code/figures/name.py"], ["Data", "results/… or data/processed/…, comma-separated"], ["Caption", "One line."], ["Wide", "yes to span both columns"]],
   Experiment: [["Hypothesis", "What the run should show"], ["Code", "code/experiments/name"], ["Run", "The exact command, e.g. make name"], ["Last run", "run-id (YYYY-MM-DD)"], ["Outcome", ""]],
   References: [["Question", "What the literature must establish"], ["Keys", "BibTeX keys, comma-separated"]]
 };
@@ -2625,16 +2625,47 @@ const latexOpts = () => { meta.latex ||= {}; meta.latex.include ||= {}; return m
 const INCLUDABLE = ["Experiment", "References", "Note"];   // left out unless you tick them
 
 /* ---------- the body ---------- */
+/* "very wide": an image at least this many times wider than tall is too short in one column, so it spans both */
+const WIDE_ASPECT = 2.2, figAspect = {};
+async function imageAspect(path) {   // width / height of a PDF, PNG or JPEG, or 0 if it can't tell
+  const f = await fileAt(path); if (!f) return 0;
+  try {
+    if (/\.pdf$/i.test(path)) {
+      const t = new TextDecoder("latin1").decode(await f.slice(0, 1 << 20).arrayBuffer());
+      const m = t.match(/\/(?:CropBox|MediaBox)\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
+      return m ? (m[3] - m[1]) / (m[4] - m[2]) : 0;
+    }
+    const v = new DataView(await f.slice(0, 1 << 18).arrayBuffer());
+    if (v.getUint32(0) === 0x89504e47) return v.getUint32(16) / v.getUint32(20);   // PNG: IHDR width, height
+    if (v.getUint16(0) === 0xffd8) for (let i = 2; i + 9 < v.byteLength;) {   // JPEG: the first SOFn marker
+      if (v.getUint8(i) !== 0xff) return 0;
+      const mk = v.getUint8(i + 1), len = v.getUint16(i + 2);
+      if (mk >= 0xc0 && mk <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(mk)) return v.getUint16(i + 7) / v.getUint16(i + 5);
+      i += 2 + len;
+    }
+  } catch (e) {}
+  return 0;
+}
+async function measureFigures() {
+  for (const b of beats) {
+    const p = beatParts(b.text); if (p.type !== "Figure") continue;
+    const outs = listField(p.fields.output).map(relPath).filter(Boolean);
+    const pick = outs.find(o => /\.pdf$/i.test(o)) || outs.find(o => /\.(png|jpe?g)$/i.test(o));
+    figAspect[b.key] = pick ? await imageAspect(pick) : 0;
+  }
+}
 function floatTex(b, p, kind) {   // a Figure or Table beat as a float
   const outs = listField(p.fields.output).map(relPath).filter(Boolean);
   const label = (p.fields.label || "").trim() || `${kind === "figure" ? "fig" : "tab"}:${slugify(b.title)}`;
-  const env = /^(yes|true|full|wide)$/i.test(p.fields.wide || "") ? kind + "*" : kind;
+  const w = (p.fields.wide || "").trim(), auto = !w || /^auto$/i.test(w);
+  const wide = /^(yes|true|full|wide)$/i.test(w) || (auto && kind === "figure" && (figAspect[b.key] || 0) >= WIDE_ASPECT);
+  const env = wide ? kind + "*" : kind;
   const capText = p.body.replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim().replace(/^(\*\*|__)?(Figure|Fig\.|Table)\s+[A-Z]?\d+[.:]?(\*\*|__)?[.:]?\s*/i, "").replace(/\n+/g, " ").trim();
   const short = p.fields.caption ? mdInline(p.fields.caption) : "", long = capText ? mdInline(capText) : short;
   let inner;
   if (kind === "figure") {
     const pick = outs.find(o => /\.pdf$/i.test(o)) || outs.find(o => /\.(png|jpe?g)$/i.test(o)) || outs[0];
-    inner = pick ? `  \\includegraphics[width=${p.fields.width || "\\linewidth"}]{${pick}}` : `  \\fbox{\\parbox{0.9\\linewidth}{\\centering Figure “${texEscape(b.title)}” has no Output yet.}}`;
+    inner = pick ? `  \\includegraphics[width=${p.fields.width || (wide ? "\\textwidth" : "\\linewidth")}]{${pick}}` : `  \\fbox{\\parbox{0.9\\linewidth}{\\centering Figure “${texEscape(b.title)}” has no Output yet.}}`;
   } else {
     const tex = outs.find(o => /\.tex$/i.test(o)), csv = outs.find(o => /\.(csv|tsv)$/i.test(o)), img = outs.find(o => /\.(pdf|png|jpe?g)$/i.test(o));
     inner = tex ? `  \\input{${tex}}` : csv ? `  %%CSV:${csv}%%` : img ? `  \\includegraphics[width=\\linewidth]{${img}}` : `  \\fbox{Table “${texEscape(b.title)}” has no Output yet.}`;
@@ -2674,6 +2705,7 @@ async function csvTable(path) {   // a CSV table output, as a booktabs tabular
 }
 /* the whole paper: the template with the body put in, and every file it needs */
 async function assemblePaper() {
+  await measureFigures();
   let body = buildBody();
   for (const m of [...body.matchAll(/^  %%CSV:(.+)%%$/gm)]) body = body.replace(m[0], (await csvTable(m[1])).replace(/^/gm, "  "));
   const tmplFile = await fileAt(MAIN_TEX), bib = await fileAt("References/references.bib");
