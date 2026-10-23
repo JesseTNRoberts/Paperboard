@@ -1006,7 +1006,7 @@ function closePanel() {
   if (k) writeOpen(null);
 }
 function setPanelMode(mode) {   // null for ordinary panels, or an editor size
-  panel.classList.remove("editor", "half", "full", "pdfp");
+  panel.classList.remove("editor", "half", "full", "olp");
   if (mode) { panel.classList.add("editor"); if (mode !== "popup") panel.classList.add(mode); }
   panel.style.top = mode === "full" ? "0px" : (HDR_TOP + HH + (mode === "half" ? 0 : 12)) + "px";
 }
@@ -1157,7 +1157,7 @@ function showSettings() {
   <div class="btnrow"><button id="addtag">Add tag</button></div>
   <h3>Backups</h3><p class="help">A copy of the board, beats and notes goes into Backups/ once a day. The board is also saved there before you remove a section, stream or tag, and the version you don't keep in a conflict is saved in Backups/Conflicts.</p>
   <div class="btnrow"><button id="backnow">Back up now</button></div>
-  <p class="srcnote">Paperboard is free software under the GNU AGPL-3.0, including the in-browser TeX Live (texlyre-busytex). <a href="https://github.com/JesseTNRoberts/Paperboard" target="_blank" rel="noopener">Source code</a>.</p>`;
+  <p class="srcnote">Paperboard is free software under the GNU AGPL-3.0. <a href="https://github.com/JesseTNRoberts/Paperboard" target="_blank" rel="noopener">Source code</a>.</p>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   const refresh = () => { refreshBoard(); saveMetaSoon(); };
   const arm = (d, fn) => d.onclick = async () => {

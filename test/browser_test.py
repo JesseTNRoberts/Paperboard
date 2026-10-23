@@ -82,9 +82,6 @@ with sync_playwright() as p:
     page.wait_for_timeout(1100)
     for f in allf:
         if f.suffix in (".png", ".pdf"): ev("async ([p, b]) => T.writeB64('sample/' + p, b)", [str(f.relative_to(SAMPLE)), base64.b64encode(f.read_bytes()).decode()])
-    ACL = os.environ.get("ACL_DIR")   # the official ACL style files (not redistributed in this repo)
-    if ACL:
-        for n in ("acl.sty", "acl_natbib.bst"): ev("async ([p, t]) => T.write('sample/export/template/' + p, t)", [n, open(os.path.join(ACL, n)).read()])
     PNG_B64 = base64.b64encode((SAMPLE / "figures/calibration_error.png").read_bytes()).decode()
     page.reload(); page.evaluate(FS_JS)
     ev("async () => storyboard.openFolder(await T.dir('sample'))")
@@ -373,43 +370,13 @@ with sync_playwright() as p:
     page.click("#restore"); page.click("#r-all"); page.wait_for_timeout(1200)
     check("Restore all brings every marked beat back", not page.is_visible("#restore") and "TO DELETE" not in " ".join(ev("() => T.ls('sample/Beats')")), ev("() => T.ls('sample/Beats')"))
     page.keyboard.press("Escape")
-    # ---------- 12. compile the paper to PDF in the browser ----------
-    if ACL:
-        page.click("#pdfbtn"); page.wait_for_selector("#x-compile"); page.wait_for_function("() => document.getElementById('x-tmpl').textContent.length > 0")
-        check("PDF panel names the template", "export/template/main.tex" in page.inner_text("#x-tmpl"))
-        page.click("#x-compile")
-        page.wait_for_function("() => /Compiled in|Didn't compile|Couldn't compile/.test(document.getElementById('x-status').textContent)", timeout=420000)
-        status = page.inner_text("#x-status")
-        pdf_head = ev("async () => { try { return (await T.read('sample/export/paper.pdf')).slice(0, 5); } catch (e) { return null; } }")
-        check("compiles the sample with the ACL template, in the browser", "Compiled in" in status and pdf_head == "%PDF-", status + " | " + (page.inner_text("#x-errs") if page.query_selector("#x-errs") else ""))
-        tex = ev("() => T.read('sample/export/paper.tex')")
-        check("paper.tex: sections in order, citations, figure float with label, body at the marker",
-              tex.index("\\section{Introduction}") < tex.index("\\section{Results}") and "\\citep{epa2023,apte2017}" not in tex and "\\citep{epa2023}" in tex
-              and "\\includegraphics[width=\\linewidth]{figures/calibration_error.pdf}" in tex and "\\label{fig:figure-1-calibration-error}" in tex and "%% PAPERBOARD BODY" not in tex, tex[tex.find("PAPERBOARD BODY START"):][:900])
-        check("the PDF panel shows the PDF", page.query_selector("#x-view iframe") is not None)
-        open(str(SHOTS / "paper.pdf"), "wb").write(base64.b64decode(ev("async () => { const f = await (await (await T.dir('sample/export')).getFileHandle('paper.pdf')).getFile(); const b = new Uint8Array(await f.arrayBuffer()); let s = ''; for (const c of b) s += String.fromCharCode(c); return btoa(s); }")))
-        page.screenshot(path=str(SHOTS / "15-pdf-panel-light.png"))
-        # an error in a beat points back to that beat
-        ev("""async () => { const p = 'sample/Beats/Contributions.md'; let t = await T.read(p); await T.write(p, t.replace('We make three', 'We make \\\\notacommand three').replace('This paper makes three', 'This paper makes \\\\notacommand three')); await storyboard.poll(); }""")
-        page.wait_for_timeout(1500); page.click("#x-compile")
-        page.wait_for_function("() => !document.getElementById('x-compile').disabled && /Compiled in|Didn't compile/.test(document.getElementById('x-status').textContent)", timeout=180000)
-        check("a LaTeX error links to the beat it came from", page.query_selector('#x-errs [data-k="b-intro2"]') is not None and "Undefined control sequence" in page.inner_text("#x-errs"), page.inner_text("#x-errs")[:500])
-        page.click('#x-errs [data-k="b-intro2"]'); page.wait_for_selector("#f-title")
-        check("…and opens that beat", ev("() => storyboard.state().activeKey") == "b-intro2")
-        page.keyboard.press("Escape")
-        ev("""async () => { const p = 'sample/Beats/Contributions.md'; let t = await T.read(p); await T.write(p, t.replace(/\\\\notacommand /g, '')); const m = 'sample/export/template/main.tex'; let u = await T.read(m); await T.write(m, u.replace('% \\\\usepackage{inconsolata}', '\\\\usepackage{inconsolata}')); await storyboard.poll(); }""")
-        page.wait_for_timeout(1500); page.click("#pdfbtn"); page.click("#x-compile")
-        page.wait_for_function("() => !document.getElementById('x-compile').disabled && /Compiled in|Didn't compile/.test(document.getElementById('x-status').textContent)", timeout=180000)
-        check("a package the in-browser TeX lacks is named, with what to do", "inconsolata.sty" in page.inner_text("#x-errs") and "full TeX Live" in page.inner_text("#x-errs"), page.inner_text("#x-errs")[:400])
-        page.keyboard.press("Escape")
-    else:
-        print("SKIP compile tests (set ACL_DIR to the acl-style-files folder)")
     # ---------- 13. Overleaf: export/overleaf is the git copy; edits there come back into the beats ----------
-    page.click("#pdfbtn"); page.wait_for_selector("#x-ol")
+    page.click("#olbtn"); page.wait_for_selector("#x-ol")
     page.wait_for_function("() => /Not linked/.test(document.getElementById('x-ol').textContent)")
     page.click("#x-olsetup"); page.wait_for_timeout(500)
     script = ev("() => T.read('sample/Sync with Overleaf.command')")
     check("Set up writes the sync script into the project folder", script.startswith("#!/bin/bash") and "security find-generic-password" in script and page.is_visible("#x-olhow"))
+    check("…with the one-time command that lets macOS run it", page.inner_text("#x-olcmd") == 'xattr -c "Sync with Overleaf.command"; chmod +x "Sync with Overleaf.command"')
     page.keyboard.press("Escape")
     # what the script's first run leaves: a git checkout of a fresh Overleaf project
     ev("""async () => { await T.write('sample/export/overleaf/.git/HEAD', 'ref: refs/heads/master\\n'); await T.write('sample/export/overleaf/main.tex', '\\\\documentclass{article}\\n\\\\begin{document}\\nOverleaf starter\\n\\\\end{document}\\n'); }""")

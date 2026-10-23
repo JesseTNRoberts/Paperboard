@@ -123,7 +123,7 @@ async function olImport() {
   if (saw) {
     saveHl(); saveMetaSoon();
     olInfo.imported = Date.now(); olInfo.notes = notes;
-    setStatus(n ? `Brought Overleaf's edits into ${plural(n, "beat")}.` : notes.length ? "Synced with Overleaf; see the PDF panel." : "Synced with Overleaf: no edits to bring in.", Object.keys(conflicts).length > 0);
+    setStatus(n ? `Brought Overleaf's edits into ${plural(n, "beat")}.` : notes.length ? "Synced with Overleaf; see the Overleaf panel." : "Synced with Overleaf: no edits to bring in.", Object.keys(conflicts).length > 0);
     renderOverleaf();
   }
 }
@@ -137,7 +137,7 @@ async function olPoll() {   // the sync script ran: bring the edits in
   if (st !== olLast.stamp || merges !== olLast.merges) { olLast.merges = merges; await enqueue("overleaf", olSync); olLast.stamp = await olStamp(); }
 }
 
-/* ---------- the Overleaf box in the PDF panel ---------- */
+/* ---------- the sync, in the Overleaf panel ---------- */
 async function renderOverleaf() {
   const box = $("x-ol"); if (!box) return;
   const repo = await olRepo(), script = await fileAt(SYNC_SCRIPT);
@@ -146,17 +146,22 @@ async function renderOverleaf() {
     $("x-olsetup").onclick = async () => { if (!script) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
     return;
   }
-  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked (export/overleaf). To sync, double-click <b>${SYNC_SCRIPT}</b> in the project folder.${olInfo.imported ? ` Last brought edits in ${fmtTime(olInfo.imported)}.` : ""}</span>` +
+  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked (export/overleaf). To sync, double-click <b>${SYNC_SCRIPT}</b> in the project folder.${olInfo.imported ? ` Last brought edits in ${fmtTime(olInfo.imported)}.` : ""}</span> <button class="mini" id="x-olsetup">Setup steps</button><div id="x-olhow" hidden></div>` +
     (olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "");
+  $("x-olsetup").onclick = async () => { if (!(await fileAt(SYNC_SCRIPT))) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
 }
 function showOlHow() {
   const h = $("x-olhow"); if (!h) return; h.hidden = false;
+  const cmd = `xattr -c "${SYNC_SCRIPT}"; chmod +x "${SYNC_SCRIPT}"`;
   h.innerHTML = `<ol class="olsteps">
-    <li>Paperboard has put <b>${SYNC_SCRIPT}</b> in the project folder. Make it runnable once: ask Claude to (“make Sync with Overleaf.command runnable”), or in Terminal run <code>chmod +x</code> followed by a space and the file dragged into the window.</li>
+    <li>Paperboard has put <b>${SYNC_SCRIPT}</b> in the project folder. macOS blocks scripts a browser wrote until you allow it, once:
+      in Terminal, type <code>cd </code> (with a space), drag the project folder into the window and press Return; then paste this and press Return:
+      <div class="cmdrow"><code id="x-olcmd">${esc(cmd)}</code><button class="mini" id="x-olcopy">Copy</button></div>
+      <span class="help">Without Terminal: double-click the script, and when macOS refuses, open System Settings &gt; Privacy &amp; Security, scroll down and click Open Anyway.</span></li>
     <li>In Overleaf, open the project and copy its Git link (Menu &gt; Integrations &gt; Git), and create a Git token (Account Settings &gt; Git integration).</li>
     <li>Double-click <b>${SYNC_SCRIPT}</b>. Paste the token and then the link when asked. The token goes into your Mac's Keychain.</li>
-    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>
-    <p class="help">If macOS says it can't be opened because it's from an unidentified developer, right-click it and choose Open the first time.</p>`;
+    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>`;
+  $("x-olcopy").onclick = async () => { try { await navigator.clipboard.writeText(cmd); $("x-olcopy").textContent = "Copied"; } catch (e) { const r = document.createRange(); r.selectNodeContents($("x-olcmd")); getSelection().removeAllRanges(); getSelection().addRange(r); } };
   renderOverleafLater();
 }
 function renderOverleafLater() { clearTimeout(renderOverleafLater.t); renderOverleafLater.t = setTimeout(async () => { if (await olRepo()) renderOverleaf(); }, 4000); }

@@ -267,6 +267,18 @@ function titleOfFile(name) {
 const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
 const TEX_SPECIAL = { "&": "\\&", "%": "\\%", "#": "\\#", "_": "\\_", "{": "\\{", "}": "\\}", "^": "\\^{}", "$": "\\$", "\\": "\\textbackslash{}" };
 const texEscape = s => String(s ?? "").replace(/[&%#_{}^$\\]/g, c => TEX_SPECIAL[c]);
+/* characters pdfLaTeX (Overleaf's default compiler) can't take straight from the text */
+const UNI_TEX = { "µ": "\\textmu{}", "μ": "\\ensuremath{\\mu}", "°": "\\textdegree{}", "±": "\\ensuremath{\\pm}", "×": "\\ensuremath{\\times}", "÷": "\\ensuremath{\\div}",
+  "≤": "\\ensuremath{\\leq}", "≥": "\\ensuremath{\\geq}", "≠": "\\ensuremath{\\neq}", "≈": "\\ensuremath{\\approx}", "∼": "\\ensuremath{\\sim}", "∝": "\\ensuremath{\\propto}",
+  "→": "\\ensuremath{\\rightarrow}", "←": "\\ensuremath{\\leftarrow}", "↔": "\\ensuremath{\\leftrightarrow}", "⇒": "\\ensuremath{\\Rightarrow}", "∞": "\\ensuremath{\\infty}",
+  "−": "\\ensuremath{-}", "·": "\\ensuremath{\\cdot}", "∑": "\\ensuremath{\\sum}", "√": "\\ensuremath{\\surd}", "∈": "\\ensuremath{\\in}", "∀": "\\ensuremath{\\forall}", "∃": "\\ensuremath{\\exists}",
+  "²": "\\textsuperscript{2}", "³": "\\textsuperscript{3}", "¹": "\\textsuperscript{1}", "₂": "\\textsubscript{2}", "₃": "\\textsubscript{3}", "‰": "\\textperthousand{}", "™": "\\texttrademark{}",
+  "α": "\\ensuremath{\\alpha}", "β": "\\ensuremath{\\beta}", "γ": "\\ensuremath{\\gamma}", "δ": "\\ensuremath{\\delta}", "ε": "\\ensuremath{\\epsilon}", "ζ": "\\ensuremath{\\zeta}", "η": "\\ensuremath{\\eta}",
+  "θ": "\\ensuremath{\\theta}", "κ": "\\ensuremath{\\kappa}", "λ": "\\ensuremath{\\lambda}", "ν": "\\ensuremath{\\nu}", "ξ": "\\ensuremath{\\xi}", "π": "\\ensuremath{\\pi}", "ρ": "\\ensuremath{\\rho}",
+  "σ": "\\ensuremath{\\sigma}", "τ": "\\ensuremath{\\tau}", "φ": "\\ensuremath{\\phi}", "χ": "\\ensuremath{\\chi}", "ψ": "\\ensuremath{\\psi}", "ω": "\\ensuremath{\\omega}",
+  "Γ": "\\ensuremath{\\Gamma}", "Δ": "\\ensuremath{\\Delta}", "Θ": "\\ensuremath{\\Theta}", "Λ": "\\ensuremath{\\Lambda}", "Π": "\\ensuremath{\\Pi}", "Σ": "\\ensuremath{\\Sigma}", "Φ": "\\ensuremath{\\Phi}", "Ψ": "\\ensuremath{\\Psi}", "Ω": "\\ensuremath{\\Omega}" };
+const UNI_RE = new RegExp("[" + Object.keys(UNI_TEX).join("") + "]", "g");
+const uniToTex = s => s.replace(UNI_RE, c => UNI_TEX[c]);
 const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
 function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
   const items = inner.split(";").map(x => x.trim()).filter(Boolean).map(x => { const m = x.match(/^(.*?)-?@([\w:.\-\/+]+)(.*)$/); return m ? { pre: m[1].trim(), key: m[2], post: m[3].replace(/^\s*,\s*/, "").trim() } : null; });
@@ -307,7 +319,7 @@ function mdInline(src) {
   s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
   s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
   // 4. escape what's left, then put the kept pieces back
-  s = texEscape(s).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
+  s = uniToTex(texEscape(s)).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
   return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
 }
 function mdTableToLatex(lines) {
@@ -368,7 +380,7 @@ function mdToLatex(md, opts = {}) {
   flush();
   return out.join("\n\n");
 }
-/* where Markdown would put the paper's figures: image paths, for copying them into the compile */
+/* the files the paper uses (figures, \input files), to copy them for Overleaf */
 function latexAssets(tex) {
   const out = new Set();
   for (const m of tex.matchAll(/\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g)) out.add(m[1].trim());
@@ -409,9 +421,10 @@ function latexToMd(tex) {
     .replace(/(^|[\s(])\\ref\{((?:fig|tab|sec|eq|lst|app|alg):[^}]+)\}/g, "$1@$2")
     .replace(/``([^`']*)''/g, '"$1"')
     .replace(/\\([&%#_])/g, "$1");
+  for (const [c, tex] of Object.entries(UNI_TEX)) md = md.split(tex).join(c);
   return mdToLatex(md) === t ? md : t;
 }
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };
+  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };

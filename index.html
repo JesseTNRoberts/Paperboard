@@ -305,29 +305,18 @@ input.mono { font-size:12.5px; }
 .codewrap.flashc { animation:flashc 1.6s ease-out 1; }
 @keyframes flashc { 0% { box-shadow:inset 0 0 0 3px var(--changed); } 100% { box-shadow:none; } }
 #c-help { margin-top:6px; }
-/* the PDF panel */
-.panel.editor.pdfp { width:min(60vw, 900px); }
-@media (max-width:900px) { .panel.editor.pdfp { width:100vw; } }
-.pdfbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-.pdfbar button.primary { border:0; background:var(--accent); color:var(--panel); border-radius:4px; padding:7px 16px; cursor:pointer; font-weight:600; }
-.pdfbar button.primary:disabled { opacity:.6; cursor:progress; }
-.pdfbar select { border:1px solid var(--edge); background:var(--card); border-radius:4px; padding:5px 6px; }
-.pdfbar .incl { font-size:12.5px; color:var(--ink-soft); display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-.pdfbar .incl label { display:inline-flex; gap:3px; align-items:center; margin:0; font:inherit; text-transform:none; letter-spacing:0; color:inherit; }
-.pdfbar .grow { flex:1; }
-.pdfbar a { font-size:13px; color:var(--accent); }
-.xstatus { font-size:13px; color:var(--ink-soft); margin:8px 0; }
-.xstatus.err { color:var(--danger); }
-.texerrs p { display:flex; gap:6px; flex-wrap:wrap; align-items:baseline; }
-.texerrs code { background:var(--board); padding:0 4px; border-radius:3px; }
-.pdfview { flex:1; min-height:300px; border:1px solid var(--edge); border-radius:4px; background:#525659; overflow:hidden; display:flex; }
-.pdfview iframe { flex:1; border:0; width:100%; height:100%; min-height:300px; background:#525659; }
-.pdfview .empty { margin:auto; color:#e4ebe9; font-size:14px; padding:24px; text-align:center; max-width:420px; line-height:1.5; }
+/* the Overleaf panel */
+.panel.olp { width:min(520px, calc(100% - 24px)); }
+.panel .incl { font-size:13px; color:var(--ink-soft); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.panel .incl label { display:inline-flex; gap:4px; align-items:center; margin:0; font:inherit; text-transform:none; letter-spacing:0; color:inherit; }
 .olbox { margin:6px 0 4px; padding:8px 10px; border:1px solid var(--edge); border-radius:4px; background:var(--card); font-size:13px; }
 .olbox .help { margin:0 0 0 4px; display:inline; }
 .olbox .mini { margin-left:6px; }
 .olsteps { margin:8px 0 4px; padding-left:20px; font-size:13px; line-height:1.5; }
 .olsteps code { background:var(--board); padding:0 4px; border-radius:3px; }
+.olsteps .cmdrow { display:flex; gap:6px; align-items:center; margin:6px 0; }
+.olsteps .cmdrow code { flex:1; padding:5px 8px; font-size:12px; user-select:all; overflow-x:auto; white-space:nowrap; }
+.olsteps li { margin-bottom:6px; }
 .srcnote { font-size:11.5px; color:var(--ink-soft); margin-top:16px; }
 .srcnote a { color:inherit; }
 </style>
@@ -359,7 +348,7 @@ input.mono { font-size:12.5px; }
   <button id="delsel" hidden>Delete arrow</button>
   <span class="sep"></span>
   <button id="order">Order</button>
-  <button id="pdfbtn" title="Compile the paper to PDF">PDF</button>
+  <button id="olbtn" title="The paper in Overleaf">Overleaf</button>
   <button id="settings">Settings</button>
   <button id="restore" hidden>Restore</button>
   <button id="conflictsbtn" hidden>Needs your choice</button>
@@ -642,6 +631,18 @@ function titleOfFile(name) {
 const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
 const TEX_SPECIAL = { "&": "\\&", "%": "\\%", "#": "\\#", "_": "\\_", "{": "\\{", "}": "\\}", "^": "\\^{}", "$": "\\$", "\\": "\\textbackslash{}" };
 const texEscape = s => String(s ?? "").replace(/[&%#_{}^$\\]/g, c => TEX_SPECIAL[c]);
+/* characters pdfLaTeX (Overleaf's default compiler) can't take straight from the text */
+const UNI_TEX = { "µ": "\\textmu{}", "μ": "\\ensuremath{\\mu}", "°": "\\textdegree{}", "±": "\\ensuremath{\\pm}", "×": "\\ensuremath{\\times}", "÷": "\\ensuremath{\\div}",
+  "≤": "\\ensuremath{\\leq}", "≥": "\\ensuremath{\\geq}", "≠": "\\ensuremath{\\neq}", "≈": "\\ensuremath{\\approx}", "∼": "\\ensuremath{\\sim}", "∝": "\\ensuremath{\\propto}",
+  "→": "\\ensuremath{\\rightarrow}", "←": "\\ensuremath{\\leftarrow}", "↔": "\\ensuremath{\\leftrightarrow}", "⇒": "\\ensuremath{\\Rightarrow}", "∞": "\\ensuremath{\\infty}",
+  "−": "\\ensuremath{-}", "·": "\\ensuremath{\\cdot}", "∑": "\\ensuremath{\\sum}", "√": "\\ensuremath{\\surd}", "∈": "\\ensuremath{\\in}", "∀": "\\ensuremath{\\forall}", "∃": "\\ensuremath{\\exists}",
+  "²": "\\textsuperscript{2}", "³": "\\textsuperscript{3}", "¹": "\\textsuperscript{1}", "₂": "\\textsubscript{2}", "₃": "\\textsubscript{3}", "‰": "\\textperthousand{}", "™": "\\texttrademark{}",
+  "α": "\\ensuremath{\\alpha}", "β": "\\ensuremath{\\beta}", "γ": "\\ensuremath{\\gamma}", "δ": "\\ensuremath{\\delta}", "ε": "\\ensuremath{\\epsilon}", "ζ": "\\ensuremath{\\zeta}", "η": "\\ensuremath{\\eta}",
+  "θ": "\\ensuremath{\\theta}", "κ": "\\ensuremath{\\kappa}", "λ": "\\ensuremath{\\lambda}", "ν": "\\ensuremath{\\nu}", "ξ": "\\ensuremath{\\xi}", "π": "\\ensuremath{\\pi}", "ρ": "\\ensuremath{\\rho}",
+  "σ": "\\ensuremath{\\sigma}", "τ": "\\ensuremath{\\tau}", "φ": "\\ensuremath{\\phi}", "χ": "\\ensuremath{\\chi}", "ψ": "\\ensuremath{\\psi}", "ω": "\\ensuremath{\\omega}",
+  "Γ": "\\ensuremath{\\Gamma}", "Δ": "\\ensuremath{\\Delta}", "Θ": "\\ensuremath{\\Theta}", "Λ": "\\ensuremath{\\Lambda}", "Π": "\\ensuremath{\\Pi}", "Σ": "\\ensuremath{\\Sigma}", "Φ": "\\ensuremath{\\Phi}", "Ψ": "\\ensuremath{\\Psi}", "Ω": "\\ensuremath{\\Omega}" };
+const UNI_RE = new RegExp("[" + Object.keys(UNI_TEX).join("") + "]", "g");
+const uniToTex = s => s.replace(UNI_RE, c => UNI_TEX[c]);
 const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
 function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
   const items = inner.split(";").map(x => x.trim()).filter(Boolean).map(x => { const m = x.match(/^(.*?)-?@([\w:.\-\/+]+)(.*)$/); return m ? { pre: m[1].trim(), key: m[2], post: m[3].replace(/^\s*,\s*/, "").trim() } : null; });
@@ -682,7 +683,7 @@ function mdInline(src) {
   s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
   s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
   // 4. escape what's left, then put the kept pieces back
-  s = texEscape(s).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
+  s = uniToTex(texEscape(s)).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
   return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
 }
 function mdTableToLatex(lines) {
@@ -743,7 +744,7 @@ function mdToLatex(md, opts = {}) {
   flush();
   return out.join("\n\n");
 }
-/* where Markdown would put the paper's figures: image paths, for copying them into the compile */
+/* the files the paper uses (figures, \input files), to copy them for Overleaf */
 function latexAssets(tex) {
   const out = new Set();
   for (const m of tex.matchAll(/\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g)) out.add(m[1].trim());
@@ -784,12 +785,13 @@ function latexToMd(tex) {
     .replace(/(^|[\s(])\\ref\{((?:fig|tab|sec|eq|lst|app|alg):[^}]+)\}/g, "$1@$2")
     .replace(/``([^`']*)''/g, '"$1"')
     .replace(/\\([&%#_])/g, "$1");
+  for (const [c, tex] of Object.entries(UNI_TEX)) md = md.split(tex).join(c);
   return mdToLatex(md) === t ? md : t;
 }
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };
+  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };
 </script>
 <script>
 "use strict";
@@ -1801,7 +1803,7 @@ function closePanel() {
   if (k) writeOpen(null);
 }
 function setPanelMode(mode) {   // null for ordinary panels, or an editor size
-  panel.classList.remove("editor", "half", "full", "pdfp");
+  panel.classList.remove("editor", "half", "full", "olp");
   if (mode) { panel.classList.add("editor"); if (mode !== "popup") panel.classList.add(mode); }
   panel.style.top = mode === "full" ? "0px" : (HDR_TOP + HH + (mode === "half" ? 0 : 12)) + "px";
 }
@@ -1952,7 +1954,7 @@ function showSettings() {
   <div class="btnrow"><button id="addtag">Add tag</button></div>
   <h3>Backups</h3><p class="help">A copy of the board, beats and notes goes into Backups/ once a day. The board is also saved there before you remove a section, stream or tag, and the version you don't keep in a conflict is saved in Backups/Conflicts.</p>
   <div class="btnrow"><button id="backnow">Back up now</button></div>
-  <p class="srcnote">Paperboard is free software under the GNU AGPL-3.0, including the in-browser TeX Live (texlyre-busytex). <a href="https://github.com/JesseTNRoberts/Paperboard" target="_blank" rel="noopener">Source code</a>.</p>`;
+  <p class="srcnote">Paperboard is free software under the GNU AGPL-3.0. <a href="https://github.com/JesseTNRoberts/Paperboard" target="_blank" rel="noopener">Source code</a>.</p>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   const refresh = () => { refreshBoard(); saveMetaSoon(); };
   const arm = (d, fn) => d.onclick = async () => {
@@ -2543,12 +2545,11 @@ function showCodeConflict() {
   $("cc-mine").onclick = () => done(true); $("cc-theirs").onclick = () => done(false);
 }
 
-/* ================= LaTeX: assemble the paper from the beats and compile it to PDF in the browser =================
+/* ================= LaTeX: the paper assembled from the beats, for Overleaf =================
    The paper is built in document order: each section is a \section (an "Abstract" section becomes the abstract),
    Paragraph beats are their text converted from Markdown (LaTeX passes through), Figure and Table beats become floats.
    It goes into the conference template at export/template/main.tex, at the line "%% PAPERBOARD BODY" (or where it says
-   \input{paperboard-body}); without a template, a plain article is used. Compiling uses TeX Live compiled to WebAssembly
-   (texlyre-busytex, AGPL-3.0), downloaded once (about 225 MB) and then cached by the browser. */
+   \input{paperboard-body}); without a template, a plain article is used. Overleaf compiles it (see overleaf.js). */
 const TEMPLATE_DIR = "export/template", MAIN_TEX = TEMPLATE_DIR + "/main.tex", BODY_MARK = /^[ \t]*%%[ \t]*PAPERBOARD[ \t]+BODY.*$/m, BODY_INPUT = /\\input\s*\{\s*paperboard-body(?:\.tex)?\s*\}/;
 const DEFAULT_TEMPLATE = (title, hasBib) => `\\documentclass[11pt]{article}
 \\usepackage[utf8]{inputenc}
@@ -2569,7 +2570,7 @@ const DEFAULT_TEMPLATE = (title, hasBib) => `\\documentclass[11pt]{article}
 %% PAPERBOARD BODY
 ${hasBib ? "\\bibliographystyle{plainnat}\n\\bibliography{references}\n" : ""}\\end{document}
 `;
-const latexOpts = () => { meta.latex ||= {}; meta.latex.include ||= {}; meta.latex.engine ||= "pdflatex"; return meta.latex; };
+const latexOpts = () => { meta.latex ||= {}; meta.latex.include ||= {}; return meta.latex; };
 const INCLUDABLE = ["Experiment", "References", "Note"];   // left out unless you tick them
 
 /* ---------- the body ---------- */
@@ -2617,9 +2618,9 @@ async function csvTable(path) {   // a CSV table output, as a booktabs tabular
   const rows = csvRows(await f.text(), /\.tsv$/i.test(path) ? "\t" : ",", 500).filter(r => r.some(c => c.trim()));
   if (!rows.length) return "";
   const n = Math.max(...rows.map(r => r.length)), al = rows[1] ? rows[1].map(c => /^-?[\d.,]+%?$/.test(c.trim()) ? "r" : "l").join("") : "l".repeat(n);
-  return `\\begin{tabular}{${al.padEnd(n, "l")}}\n\\toprule\n${rows[0].map(texEscape).join(" & ")} \\\\\n\\midrule\n${rows.slice(1).map(r => r.map(texEscape).join(" & ") + " \\\\").join("\n")}\n\\bottomrule\n\\end{tabular}`;
+  return `\\begin{tabular}{${al.padEnd(n, "l")}}\n\\toprule\n${rows[0].map(c => uniToTex(texEscape(c))).join(" & ")} \\\\\n\\midrule\n${rows.slice(1).map(r => r.map(c => uniToTex(texEscape(c))).join(" & ") + " \\\\").join("\n")}\n\\bottomrule\n\\end{tabular}`;
 }
-/* the whole paper: the template with the body put in, and every file the compile needs */
+/* the whole paper: the template with the body put in, and every file it needs */
 async function assemblePaper() {
   let body = buildBody();
   for (const m of [...body.matchAll(/^  %%CSV:(.+)%%$/gm)]) body = body.replace(m[0], (await csvTable(m[1])).replace(/^/gm, "  "));
@@ -2650,112 +2651,21 @@ async function assemblePaper() {
   return { main, body, files, notes, template: tmplFile ? MAIN_TEX : null };
 }
 
-/* ---------- the TeX engine (loaded on first use) ---------- */
-let texRunner = null, texLoading = null, texProgress = null;
-const vendorURL = p => new URL("vendor/" + p, location.href);
-function canCompile() { return /^https?:$/.test(location.protocol) && !!window.Worker && !!window.WebAssembly; }
-async function texEngine() {
-  if (texRunner) return texRunner;
-  if (texLoading) return texLoading;
-  texLoading = (async () => {
-    const lib = await import(vendorURL("texlyre-busytex/index.js").href);
-    const base = vendorURL("busytex").pathname.replace(/\/$/, "");
-    const runner = new lib.BusyTexRunner({ busytexBasePath: base, preloadDataPackages: [base + "/texlive-recommended.js"], onDownloadProgress: pr => texProgress && texProgress(pr) });
-    await runner.initialize(true);
-    texRunner = { runner, lib };
-    return texRunner;
-  })();
-  try { return await texLoading; } catch (e) { texLoading = null; throw e; }
-}
-
-/* ---------- the PDF panel ---------- */
-let pdfURL = null, compiling = false, lastCompile = null;
-function texErrors(log, main) {   // "! …" errors with the line they point at, mapped back to the beat
-  const lines = log.split("\n"), mainLines = main.split("\n"), errs = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith("!")) continue;
-    let ln = null, ctx = "";
-    for (let j = i + 1; j < Math.min(lines.length, i + 12); j++) { const m = lines[j].match(/^l\.(\d+)\s?(.*)$/); if (m) { ln = +m[1]; ctx = m[2]; break; } }
-    let beat = null, section = null;
-    if (ln) for (let k = Math.min(ln, mainLines.length) - 1; k >= 0; k--) {
-      const id = beatTagId(mainLines[k]); if (id) { beat = id; break; }
-      if (/^% ---- PAPERBOARD BODY START/.test(mainLines[k])) break;
-    }
-    const msg = lines[i].replace(/^!\s*/, ""), miss = msg.match(/File `([^']+)' not found/);
-    if (errs.some(e => e.msg === msg && e.line === ln)) continue;
-    errs.push({ msg, line: ln, ctx, beat, missing: miss ? miss[1] : null });
-  }
-  return errs;
-}
-function showPdfPanel() {
-  activeKey = null; setPanelMode("half"); panel.classList.add("pdfp");
+/* ---------- the Overleaf panel: template, what to include, and the sync ---------- */
+function showOverleafPanel() {
+  activeKey = null; setPanelMode(null); panel.classList.add("olp");
   const o = latexOpts();
-  panel.innerHTML = `<header><div><div class="eyebrow">Paper</div><h2>PDF</h2></div><div class="hdrright"><button class="x" aria-label="Close">✕</button></div></header>
-    <div class="pdfbar">
-      <button id="x-compile" class="primary">Compile</button>
-      <select id="x-engine" aria-label="TeX engine">${[["pdflatex", "pdfLaTeX"], ["xelatex", "XeLaTeX"], ["lualatex", "LuaLaTeX"]].map(([v, l]) => `<option value="${v}"${o.engine === v ? " selected" : ""}>${l}</option>`).join("")}</select>
-      <span class="incl">Also include: ${INCLUDABLE.map(t => `<label><input type="checkbox" data-inc="${t}"${o.include[t] ? " checked" : ""}> ${t}</label>`).join(" ")}</span>
-      <span class="grow"></span><a id="x-open" href="#" target="_blank" rel="noopener" hidden>Open in a new tab</a>
-    </div>
+  panel.innerHTML = `<header><div><div class="eyebrow">Paper</div><h2>Overleaf</h2></div><button class="x" aria-label="Close">✕</button></header>
+    <p class="help">Paperboard builds the paper's LaTeX from the beats, in document order, and Overleaf compiles it.</p>
     <p class="help" id="x-tmpl"></p>
-    <div class="olbox" id="x-ol"></div>
-    <div id="x-status" class="xstatus" role="status"></div>
-    <div id="x-errs"></div>
-    <div class="pdfview" id="x-view"><div class="empty">${canCompile() ? "Compile to see the paper." : "Compiling needs the online app (https://jessetnroberts.com/Paperboard/) in Chrome or Edge. Claude can also compile export/paper.tex for you."}</div></div>`;
-  panel.hidden = false; panel.querySelector(".x").onclick = () => { panel.classList.remove("pdfp"); closePanel(); };
-  $("x-engine").onchange = e => { latexOpts().engine = e.target.value; saveMetaSoon(); };
+    <p class="incl">Also include: ${INCLUDABLE.map(t => `<label><input type="checkbox" data-inc="${t}"${o.include[t] ? " checked" : ""}> ${t} beats</label>`).join(" ")}</p>
+    <div class="olbox" id="x-ol"></div>`;
+  panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   panel.querySelectorAll("[data-inc]").forEach(c => c.onchange = () => { latexOpts().include[c.dataset.inc] = c.checked; saveMetaSoon(); });
-  $("x-compile").onclick = compilePaper;
-  (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>. Output: <code>export/paper.pdf</code>, with <code>export/paper.tex</code> and <code>export/paper.log</code>.` : `No conference template yet, so a plain article is used. Ask Claude to set up the conference's official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
-  if (lastCompile) renderCompile(lastCompile);
+  (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>.` : `No conference template yet, so a plain article is used. Ask Claude to set up the conference's official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
   renderOverleaf();
 }
-function setX(t, err) { const s = $("x-status"); if (s) { s.textContent = t; s.classList.toggle("err", !!err); } }
-async function compilePaper() {
-  if (compiling) return;
-  if (!canCompile()) return setX("Compiling needs the online app in Chrome or Edge.", true);
-  compiling = true; const btn = $("x-compile"); if (btn) { btn.disabled = true; btn.textContent = "Compiling…"; }
-  const t0 = performance.now();
-  try {
-    setX("Putting the paper together…");
-    await flushCode(); for (const b of beats) if (textTimers[b.key]) await flushBeat(b);
-    const paper = await assemblePaper();
-    const exp = await subdir("export", true);
-    await writeText(exp, "paper.tex", paper.main);
-    if (!texRunner) setX("Loading TeX (the first time downloads about 225 MB; after that it's cached)…");
-    texProgress = pr => setX(`Downloading TeX: ${Math.round(pr.percent || 0)}% (${Math.round((pr.loaded || 0) / 1e6)} of ${Math.round((pr.total || 0) / 1e6)} MB). This happens once.`);
-    const { runner, lib } = await texEngine();
-    texProgress = null;
-    setX("Compiling…");
-    const engine = latexOpts().engine, Tool = engine === "xelatex" ? lib.XeLatex : engine === "lualatex" ? lib.LuaLatex : lib.PdfLatex;
-    const r = await new Tool(runner).compile({ input: paper.main, bibtex: /\\bibliography\s*\{/.test(paper.main), rerun: true, additionalFiles: paper.files });
-    await writeText(exp, "paper.log", r.log || "");
-    if (r.pdf && r.pdf.length) { const h = await exp.getFileHandle("paper.pdf", { create: true }), w = await h.createWritable(); await w.write(r.pdf); await w.close(); }
-    lastCompile = { ok: !!(r.pdf && r.pdf.length), pdf: r.pdf, errors: texErrors(r.log || "", paper.main), notes: paper.notes, secs: (performance.now() - t0) / 1000 };
-    renderCompile(lastCompile);
-    setStatus(lastCompile.ok ? "Compiled export/paper.pdf" : "Compile failed: see the PDF panel", !lastCompile.ok);
-  } catch (e) {
-    console.error(e); setX("Couldn't compile: " + (e.message || e), true);
-  } finally { compiling = false; const b2 = $("x-compile"); if (b2) { b2.disabled = false; b2.textContent = "Compile"; } }
-}
-function renderCompile(c) {
-  if (!$("x-view")) return;
-  if (c.ok) {
-    if (pdfURL) setTimeout(((u) => () => URL.revokeObjectURL(u))(pdfURL), 30000);
-    pdfURL = URL.createObjectURL(new Blob([c.pdf], { type: "application/pdf" }));
-    $("x-view").innerHTML = `<iframe title="Compiled paper" src="${esc(pdfURL)}"></iframe>`;
-    const a = $("x-open"); a.href = pdfURL; a.hidden = false;
-  } else $("x-view").innerHTML = `<div class="empty">No PDF this time. The first error is usually the one to fix.</div>`;
-  const errs = c.errors.slice(0, 8);
-  const missing = errs.filter(e => e.missing);
-  setX(c.ok ? `Compiled in ${c.secs.toFixed(1)} s${errs.length ? `, with ${plural(c.errors.length, "error")}` : ""}. Saved export/paper.pdf.` : `Didn't compile (${plural(c.errors.length, "error")}).`, !c.ok);
-  $("x-errs").innerHTML = (c.notes.length ? `<div class="warn">${c.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "") + (errs.length ? `<div class="warn texerrs">${errs.map(e => {
-    const b = e.beat && beatByKey(e.beat);
-    return `<p><b>${esc(e.msg)}</b>${e.ctx ? ` <code>${esc(e.ctx.slice(0, 80))}</code>` : ""}${b ? ` <button class="mini" data-k="${esc(b.key)}">Open “${esc(b.title)}”</button>` : e.line ? ` <span class="help">line ${e.line} of export/paper.tex</span>` : ""}</p>`;
-  }).join("")}${missing.length ? `<p>${missing.map(e => `<code>${esc(e.missing)}</code>`).join(", ")} isn't in the in-browser TeX. Remove it from <code>${MAIN_TEX}</code>, or ask Claude to compile <code>export/paper.tex</code> with full TeX Live.</p>` : ""}<p class="help">Full log: export/paper.log</p></div>` : "");
-  $("x-errs").querySelectorAll("[data-k]").forEach(btn => btn.onclick = () => { panel.classList.remove("pdfp"); openBeat(btn.dataset.k); });
-}
-$("pdfbtn").onclick = () => { if (meta) showPdfPanel(); };
+$("olbtn").onclick = () => { if (meta) showOverleafPanel(); };
 const SYNC_SCRIPT_TEXT = "#!/bin/bash\n# Sync with Overleaf (written by Paperboard). Double-click to send the paper to Overleaf and bring Overleaf's edits back.\n#\n# export/overleaf/ is a git copy of your Overleaf project. Paperboard keeps the paper written into it, and this script:\n#   1. commits what Paperboard wrote,\n#   2. pulls Overleaf's changes and merges them,\n#   3. pushes the result to Overleaf.\n# Paperboard (open in Chrome) then merges Overleaf's edits back into the beats.\n# If both sides changed the same lines, this script sets the three versions aside in export/overleaf-merge/ and takes\n# Overleaf's version; Paperboard merges them beat by beat and asks you where they clash; then double-click again.\n#\n# The Overleaf token is kept in your macOS Keychain (service \"Paperboard Overleaf\"), never in a file.\n\ncd \"$(dirname \"$0\")\" || exit 1\nREPO=\"export/overleaf\"\nSERVICE=\"Paperboard Overleaf\"\nTRIPLES=\"main.tex references.bib\"\nsay() { printf '%s\\n' \"$*\"; }\nfinish() { say \"\"; say \"$1\"; say \"\"; [ -t 0 ] && [ -z \"$PAPERBOARD_NO_PAUSE\" ] && read -n 1 -s -r -p \"Press any key to close.\"; echo; exit \"${2:-0}\"; }\n\ncommand -v git >/dev/null 2>&1 || finish \"git isn't installed. Run 'xcode-select --install' in Terminal, then try again.\" 1\n\ntoken_get() {\n  if [ -n \"$PAPERBOARD_OVERLEAF_TOKEN\" ]; then printf %s \"$PAPERBOARD_OVERLEAF_TOKEN\"; return; fi\n  security find-generic-password -a \"$USER\" -s \"$SERVICE\" -w 2>/dev/null\n}\nTOKEN=\"$(token_get)\"\nif [ -z \"$TOKEN\" ]; then\n  say \"Paste your Overleaf Git authentication token (Overleaf: Account Settings > Git integration),\"\n  say \"then press Return. It goes into your macOS Keychain; you won't be asked again.\"\n  read -r -s TOKEN; echo\n  [ -n \"$TOKEN\" ] || finish \"No token given; nothing changed.\" 1\n  security add-generic-password -U -a \"$USER\" -s \"$SERVICE\" -l \"Paperboard Overleaf token\" -w \"$TOKEN\" >/dev/null || finish \"Couldn't save the token to the Keychain.\" 1\nfi\n\nASKPASS=\"$(mktemp -t paperboard-askpass.XXXXXX)\" || exit 1\ntrap 'rm -f \"$ASKPASS\"' EXIT\nprintf '#!/bin/sh\\ncase \"$1\" in *sername*) echo git ;; *) printf \"%%s\\\\n\" \"$PAPERBOARD_TOKEN\" ;; esac\\n' > \"$ASKPASS\"\nchmod 700 \"$ASKPASS\"\nexport GIT_ASKPASS=\"$ASKPASS\" PAPERBOARD_TOKEN=\"$TOKEN\" GIT_TERMINAL_PROMPT=0\ngit_() { git -c credential.helper= -c core.quotepath=off \"$@\"; }\n\nif [ ! -d \"$REPO/.git\" ]; then\n  say \"Connecting this project to Overleaf.\"\n  say \"Paste the project's Git link (Overleaf: Menu > Integrations > Git), e.g. https://git.overleaf.com/0123456789abcdef01234567\"\n  read -r URL\n  URL=\"$(printf %s \"$URL\" | sed -E 's#^ *git clone +##; s#^(https?://)[^@/]*@#\\1#; s# *$##')\"\n  [ -n \"$URL\" ] || finish \"No link given; nothing changed.\" 1\n  mkdir -p export\n  if [ -e \"$REPO\" ] && [ -n \"$(ls -A \"$REPO\" 2>/dev/null)\" ]; then\n    TMP=\"$REPO.clone-$$\"\n    git_ clone -q \"$URL\" \"$TMP\" || finish \"Couldn't reach that Overleaf project. Check the link and the token (to re-enter the token, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n    mv \"$TMP/.git\" \"$REPO/.git\" && rm -rf \"$TMP\"\n  else\n    git_ clone -q \"$URL\" \"$REPO\" || finish \"Couldn't reach that Overleaf project. Check the link and the token (to re-enter the token, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n  fi\n  git_ -C \"$REPO\" config user.name \"${PAPERBOARD_GIT_NAME:-Paperboard}\"\n  git_ -C \"$REPO\" config user.email \"${PAPERBOARD_GIT_EMAIL:-paperboard@localhost}\"\n  finish \"Connected. Paperboard (open in Chrome) now puts the paper into export/overleaf. Double-click this again to send it to Overleaf.\"\nfi\n\ncd \"$REPO\" || exit 1\nBR=\"$(git_ rev-parse --abbrev-ref HEAD)\"\ngit_ add -A\ngit_ diff --cached --quiet || git_ commit -q -m \"Paperboard $(date '+%Y-%m-%d %H:%M')\"\ngit_ fetch -q origin || finish \"Couldn't reach Overleaf. Check your connection (and the token: to re-enter it, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n\nif ! git_ merge -q --no-edit \"origin/$BR\" >/dev/null 2>&1; then\n  STAMP=\"$(date '+%Y-%m-%d-%H%M%S')\"\n  OUT=\"../overleaf-merge/$STAMP\"\n  mkdir -p \"$OUT\"\n  BASE=\"$(git_ merge-base HEAD \"origin/$BR\")\"\n  for f in $TRIPLES; do\n    git_ show \"$BASE:$f\" > \"$OUT/base-$f\" 2>/dev/null || rm -f \"$OUT/base-$f\"\n    git_ show \"HEAD:$f\" > \"$OUT/ours-$f\" 2>/dev/null || rm -f \"$OUT/ours-$f\"\n    git_ show \"origin/$BR:$f\" > \"$OUT/theirs-$f\" 2>/dev/null || rm -f \"$OUT/theirs-$f\"\n  done\n  git_ merge --abort 2>/dev/null\n  git_ reset -q --hard \"origin/$BR\"\n  finish \"Overleaf and Paperboard both changed the same lines. Paperboard is merging them beat by beat and will ask you where they clash. Then double-click this again to send the result.\"\nfi\n\nAHEAD=\"$(git_ rev-list --count \"origin/$BR..HEAD\")\"\nif [ \"$AHEAD\" != \"0\" ]; then git_ push -q origin \"HEAD:$BR\" || finish \"Overleaf refused the push (someone may have just edited). Double-click again.\" 1; fi\nfinish \"Synced with Overleaf. Sent: $([ \"$AHEAD\" != \"0\" ] && echo yes || echo nothing new). Paperboard is bringing Overleaf's edits into the beats.\"\n";
 
 /* ================= Overleaf: export/overleaf is a git copy of the Overleaf project =================
@@ -2882,7 +2792,7 @@ async function olImport() {
   if (saw) {
     saveHl(); saveMetaSoon();
     olInfo.imported = Date.now(); olInfo.notes = notes;
-    setStatus(n ? `Brought Overleaf's edits into ${plural(n, "beat")}.` : notes.length ? "Synced with Overleaf; see the PDF panel." : "Synced with Overleaf: no edits to bring in.", Object.keys(conflicts).length > 0);
+    setStatus(n ? `Brought Overleaf's edits into ${plural(n, "beat")}.` : notes.length ? "Synced with Overleaf; see the Overleaf panel." : "Synced with Overleaf: no edits to bring in.", Object.keys(conflicts).length > 0);
     renderOverleaf();
   }
 }
@@ -2896,7 +2806,7 @@ async function olPoll() {   // the sync script ran: bring the edits in
   if (st !== olLast.stamp || merges !== olLast.merges) { olLast.merges = merges; await enqueue("overleaf", olSync); olLast.stamp = await olStamp(); }
 }
 
-/* ---------- the Overleaf box in the PDF panel ---------- */
+/* ---------- the sync, in the Overleaf panel ---------- */
 async function renderOverleaf() {
   const box = $("x-ol"); if (!box) return;
   const repo = await olRepo(), script = await fileAt(SYNC_SCRIPT);
@@ -2905,17 +2815,22 @@ async function renderOverleaf() {
     $("x-olsetup").onclick = async () => { if (!script) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
     return;
   }
-  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked (export/overleaf). To sync, double-click <b>${SYNC_SCRIPT}</b> in the project folder.${olInfo.imported ? ` Last brought edits in ${fmtTime(olInfo.imported)}.` : ""}</span>` +
+  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked (export/overleaf). To sync, double-click <b>${SYNC_SCRIPT}</b> in the project folder.${olInfo.imported ? ` Last brought edits in ${fmtTime(olInfo.imported)}.` : ""}</span> <button class="mini" id="x-olsetup">Setup steps</button><div id="x-olhow" hidden></div>` +
     (olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "");
+  $("x-olsetup").onclick = async () => { if (!(await fileAt(SYNC_SCRIPT))) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
 }
 function showOlHow() {
   const h = $("x-olhow"); if (!h) return; h.hidden = false;
+  const cmd = `xattr -c "${SYNC_SCRIPT}"; chmod +x "${SYNC_SCRIPT}"`;
   h.innerHTML = `<ol class="olsteps">
-    <li>Paperboard has put <b>${SYNC_SCRIPT}</b> in the project folder. Make it runnable once: ask Claude to (“make Sync with Overleaf.command runnable”), or in Terminal run <code>chmod +x</code> followed by a space and the file dragged into the window.</li>
+    <li>Paperboard has put <b>${SYNC_SCRIPT}</b> in the project folder. macOS blocks scripts a browser wrote until you allow it, once:
+      in Terminal, type <code>cd </code> (with a space), drag the project folder into the window and press Return; then paste this and press Return:
+      <div class="cmdrow"><code id="x-olcmd">${esc(cmd)}</code><button class="mini" id="x-olcopy">Copy</button></div>
+      <span class="help">Without Terminal: double-click the script, and when macOS refuses, open System Settings &gt; Privacy &amp; Security, scroll down and click Open Anyway.</span></li>
     <li>In Overleaf, open the project and copy its Git link (Menu &gt; Integrations &gt; Git), and create a Git token (Account Settings &gt; Git integration).</li>
     <li>Double-click <b>${SYNC_SCRIPT}</b>. Paste the token and then the link when asked. The token goes into your Mac's Keychain.</li>
-    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>
-    <p class="help">If macOS says it can't be opened because it's from an unidentified developer, right-click it and choose Open the first time.</p>`;
+    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>`;
+  $("x-olcopy").onclick = async () => { try { await navigator.clipboard.writeText(cmd); $("x-olcopy").textContent = "Copied"; } catch (e) { const r = document.createRange(); r.selectNodeContents($("x-olcmd")); getSelection().removeAllRanges(); getSelection().addRange(r); } };
   renderOverleafLater();
 }
 function renderOverleafLater() { clearTimeout(renderOverleafLater.t); renderOverleafLater.t = setTimeout(async () => { if (await olRepo()) renderOverleaf(); }, 4000); }

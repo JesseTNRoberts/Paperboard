@@ -171,4 +171,10 @@ t("LaTeX edited in Overleaf comes back as Markdown when it can, LaTeX when it ca
   const raw = "We use \\SI{3}{\\micro\\gram} and \\cite{a} directly.";
   assert.strictEqual(C.mdToLatex(C.latexToMd(raw)), raw);
 });
+t("symbols pdfLaTeX can't take directly are converted, and come back from Overleaf", () => {
+  const md = "PM2.5 ≥ 35 µg/m³; α = 0.05, Δ ≈ 2 °C → r² ± 0.1", tex = C.mdToLatex(md);
+  assert.ok(!/[≥µ³αΔ≈°→²±]/.test(tex), tex);
+  assert.strictEqual(C.latexToMd(tex), md);
+  assert.strictEqual(C.mdToLatex("inside math $α ≥ 1$ stays"), "inside math $α ≥ 1$ stays");
+});
 console.log(`${n - fail}/${n} tests passed`); process.exit(fail ? 1 : 0);

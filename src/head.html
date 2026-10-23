@@ -305,29 +305,18 @@ input.mono { font-size:12.5px; }
 .codewrap.flashc { animation:flashc 1.6s ease-out 1; }
 @keyframes flashc { 0% { box-shadow:inset 0 0 0 3px var(--changed); } 100% { box-shadow:none; } }
 #c-help { margin-top:6px; }
-/* the PDF panel */
-.panel.editor.pdfp { width:min(60vw, 900px); }
-@media (max-width:900px) { .panel.editor.pdfp { width:100vw; } }
-.pdfbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-.pdfbar button.primary { border:0; background:var(--accent); color:var(--panel); border-radius:4px; padding:7px 16px; cursor:pointer; font-weight:600; }
-.pdfbar button.primary:disabled { opacity:.6; cursor:progress; }
-.pdfbar select { border:1px solid var(--edge); background:var(--card); border-radius:4px; padding:5px 6px; }
-.pdfbar .incl { font-size:12.5px; color:var(--ink-soft); display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-.pdfbar .incl label { display:inline-flex; gap:3px; align-items:center; margin:0; font:inherit; text-transform:none; letter-spacing:0; color:inherit; }
-.pdfbar .grow { flex:1; }
-.pdfbar a { font-size:13px; color:var(--accent); }
-.xstatus { font-size:13px; color:var(--ink-soft); margin:8px 0; }
-.xstatus.err { color:var(--danger); }
-.texerrs p { display:flex; gap:6px; flex-wrap:wrap; align-items:baseline; }
-.texerrs code { background:var(--board); padding:0 4px; border-radius:3px; }
-.pdfview { flex:1; min-height:300px; border:1px solid var(--edge); border-radius:4px; background:#525659; overflow:hidden; display:flex; }
-.pdfview iframe { flex:1; border:0; width:100%; height:100%; min-height:300px; background:#525659; }
-.pdfview .empty { margin:auto; color:#e4ebe9; font-size:14px; padding:24px; text-align:center; max-width:420px; line-height:1.5; }
+/* the Overleaf panel */
+.panel.olp { width:min(520px, calc(100% - 24px)); }
+.panel .incl { font-size:13px; color:var(--ink-soft); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.panel .incl label { display:inline-flex; gap:4px; align-items:center; margin:0; font:inherit; text-transform:none; letter-spacing:0; color:inherit; }
 .olbox { margin:6px 0 4px; padding:8px 10px; border:1px solid var(--edge); border-radius:4px; background:var(--card); font-size:13px; }
 .olbox .help { margin:0 0 0 4px; display:inline; }
 .olbox .mini { margin-left:6px; }
 .olsteps { margin:8px 0 4px; padding-left:20px; font-size:13px; line-height:1.5; }
 .olsteps code { background:var(--board); padding:0 4px; border-radius:3px; }
+.olsteps .cmdrow { display:flex; gap:6px; align-items:center; margin:6px 0; }
+.olsteps .cmdrow code { flex:1; padding:5px 8px; font-size:12px; user-select:all; overflow-x:auto; white-space:nowrap; }
+.olsteps li { margin-bottom:6px; }
 .srcnote { font-size:11.5px; color:var(--ink-soft); margin-top:16px; }
 .srcnote a { color:inherit; }
 </style>
@@ -359,7 +348,7 @@ input.mono { font-size:12.5px; }
   <button id="delsel" hidden>Delete arrow</button>
   <span class="sep"></span>
   <button id="order">Order</button>
-  <button id="pdfbtn" title="Compile the paper to PDF">PDF</button>
+  <button id="olbtn" title="The paper in Overleaf">Overleaf</button>
   <button id="settings">Settings</button>
   <button id="restore" hidden>Restore</button>
   <button id="conflictsbtn" hidden>Needs your choice</button>
