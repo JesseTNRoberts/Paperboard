@@ -405,8 +405,8 @@ with sync_playwright() as p:
     check("…and is saved to the beat file", "(often fewer than ten) [@epa2023]" in ev("() => T.read('sample/Beats/Opening problem statement.md')"))
     check("…and the card is highlighted", "b-intro1" in ev("() => storyboard.state().hl"))
     check("a preamble edit in Overleaf goes into export/template/main.tex", "\\usepackage{xcolor}" in ev("() => T.read('sample/export/template/main.tex')"))
-    check("main.tex for Overleaf teaches pdfLaTeX the extra characters", "PAPERBOARD UNICODE START" in ev("() => T.read('sample/export/overleaf/main.tex')") and "DeclareUnicodeCharacter{2078}" in ev("() => T.read('sample/export/overleaf/main.tex')"))
-    check("that block never goes back into the template", "PAPERBOARD UNICODE" not in ev("() => T.read('sample/export/template/main.tex')"))
+    check("main.tex for Overleaf teaches pdfLaTeX the extra characters", "PAPERBOARD PREAMBLE START" in ev("() => T.read('sample/export/overleaf/main.tex')") and "DeclareUnicodeCharacter{2078}" in ev("() => T.read('sample/export/overleaf/main.tex')"))
+    check("that block never goes back into the template", "PAPERBOARD PREAMBLE" not in ev("() => T.read('sample/export/template/main.tex')"))
     check("a reference added in Overleaf goes into References/references.bib", "newkey2026" in ev("() => T.read('sample/References/references.bib')"))
     # a clash: git pull stops with diff3 conflict markers in main.tex; Paperboard reads the three versions and asks
     ev("""async () => {
@@ -450,6 +450,36 @@ with sync_playwright() as p:
     ev("""async () => { const p = 'sample/Beats/Wide panel.md'; await T.write(p, (await T.read(p)).replace('Status:\\n', 'Status:\\nWide: no\\n')); await T.touch('sample'); }""")
     ok = wait_file("sample/export/overleaf/main.tex", "t.includes('\\\\includegraphics[width=\\\\linewidth]{figures/wide_panel.pdf}')")
     check("Wide: no keeps a wide figure in one column", ok)
+    # ---------- Claude's text stays dark blue until the author approves it ----------
+    lim = ev("""async () => { for (const f of await T.ls('sample/Beats')) if (f.endsWith('.md') && (await T.read('sample/Beats/' + f)).startsWith('ID: b-disc1')) return 'sample/Beats/' + f; }""")
+    ev("""async (p) => { await T.write(p, (await T.read(p)).replace('The deployment covers one city and one climate.', 'The deployment covers one city and one climate. {++A second city would test whether the model transfers.++}')); await T.touch('sample'); }""", lim)
+    ok = wait_file("sample/export/overleaf/main.tex", "t.includes('\\\\claude{A second city would test whether the model transfers.}')")
+    check("Claude's {++ … ++} text goes to Overleaf as \\claude{…}", ok)
+    olm = ev("() => T.read('sample/export/overleaf/main.tex')")
+    check("main.tex defines \\claude in dark blue", "\\DeclareRobustCommand{\\claude}[1]{{\\color{paperboardclaude}#1}}" in olm)
+    for _ in range(30):
+        if "To approve" in (page.inner_text('.card[data-key="b-disc1"]') or ""): break
+        page.wait_for_timeout(300)
+    check("the card says it has text to approve", "To approve" in page.inner_text('.card[data-key="b-disc1"]'))
+    page.click('.card[data-key="b-disc1"]'); page.wait_for_selector("#f-text"); page.click('[data-tab="beat"]')
+    ev("""() => { const ta = document.getElementById('f-text'); const i = ta.value.indexOf('second city') + 6; ta.focus(); ta.setSelectionRange(i, i); }""")
+    page.keyboard.type(" coastal", delay=10)
+    ok = wait_file(lim, "t.includes('{++A second++} coastal{++ city would test')")
+    check("words the author types inside Claude's text are the author's", ok, ev("(p) => T.read(p)", lim)[-200:])
+    page.click('[data-view="preview"]'); page.wait_for_timeout(300)
+    check("the preview shows Claude's text in its own colour", page.locator("#f-prev .claudetext").count() >= 2 and "coastal" not in " ".join(page.locator("#f-prev .claudetext").all_inner_texts()))
+    page.click('[data-view="write"]')
+    page.click("#f-approve"); page.wait_for_timeout(200)
+    ok = wait_file(lim, "t.includes('A second coastal city would test whether the model transfers.') && !t.includes('{++')")
+    check("Approve with nothing selected approves all of the beat", ok)
+    check("the Approve button hides when there's nothing to approve", page.locator("#f-approve").is_hidden())
+    page.keyboard.press("Escape")
+    # in Overleaf: a co-author types inside \claude{…}; their words come back approved
+    ev("""async (p) => { await T.write(p, (await T.read(p)).replace('A second coastal city would test whether the model transfers.', 'A second coastal city would test whether the model transfers. {++Seasonal drift is a further open question.++}')); await T.touch('sample'); }""", lim)
+    ok = wait_file("sample/export/overleaf/main.tex", "t.includes('\\\\claude{Seasonal drift is a further open question.}')")
+    ev("""async () => { const p = 'sample/export/overleaf/main.tex'; await T.write(p, (await T.read(p)).replace('\\\\claude{Seasonal drift is a further open question.}', '\\\\claude{Seasonal humidity drift is a further open question.}')); }""")
+    ok = wait_file(lim, "/\\{\\+\\+Seasonal ?\\+\\+\\} ?humidity ?\\{\\+\\+ ?drift is a further open question\\.\\+\\+\\}/.test(t)")
+    check("words typed inside \\claude{…} in Overleaf come back as the author's", ok, ev("(p) => T.read(p)", lim)[-200:])
 
     check("no script errors", not errors, errors)
 

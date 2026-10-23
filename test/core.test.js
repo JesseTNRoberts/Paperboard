@@ -193,4 +193,24 @@ t("captions and approximate values", () => {
   assert.strictEqual(C.mdInline("a 14\u2011month run"), "a 14-month run");
   assert.strictEqual(C.latexToMd("a 14-month run, CC-BY"), "a 14-month run, CC-BY");
 });
+t("Claude's unapproved text: {++ … ++} becomes \\claude{…} and comes back", () => {
+  for (const md of ["Mine. {++Claude's, citing [@smith2020] and $x^2$, **bold**, 2⁸.++} Mine again.", "{++One.++}\n\n{++As @smith2020 show.++}"]) {
+    const tex = C.mdToLatex(md); assert.ok(tex.includes("\\claude{"), tex); assert.strictEqual(C.latexToMd(tex), md);
+  }
+  const h = C.mdToLatex("## {++A heading++}"); assert.strictEqual(C.mdToLatex(C.latexToMd(h)), h);   // LaTeX that stays LaTeX keeps the marks too
+  assert.strictEqual(C.mdToLatex("{++- one\n- two++}"), "\\begin{itemize}\n  \\item \\claude{one}\n  \\item \\claude{two}\n\\end{itemize}");
+  assert.strictEqual(C.mdToLatex("{++Text.\n\n$$x$$\n\nMore.++}"), "\\claude{Text.}\n\n\\[x\\]\n\n\\claude{More.}");
+  assert.ok(C.unicodePreamble().includes("\\DeclareRobustCommand{\\claude}"));
+});
+t("what the author types inside Claude's text is the author's", () => {
+  assert.deepStrictEqual(C.typedApproved("a {++bcd++} e", "a {++bXcd++} e"), { text: "a {++b++}X{++cd++} e", caret: 10 });
+  assert.deepStrictEqual(C.typedApproved("a {++bcd++} e", "a {++bcdX++} e"), { text: "a {++bcd++}X e", caret: 12 });
+  assert.deepStrictEqual(C.typedApproved("a {++bcd++} e", "a {++Xbcd++} e"), { text: "a X{++bcd++} e", caret: 3 });
+  assert.strictEqual(C.typedApproved("a {++bcd++} e", "a {++bcd++} eX"), null);
+  assert.deepStrictEqual(C.typedApproved("{++one two++}", "{++one  two++}", 7), { text: "{++one++} {++ two++}", caret: 10 });   // the caret says which space is new
+  assert.strictEqual(C.typedApproved("a {++bcd++} e", "a {++bd++} e"), null);   // deleting needs nothing
+  assert.strictEqual(C.approveTyped("{++the quick brown fox++}", "{++the very quick brown dog++}"), "{++the ++}very{++ quick brown ++}dog");
+  assert.strictEqual(C.approveRange("{++abc def++} g", 6, 9), "{++abc++} de{++f++} g");
+  assert.strictEqual(C.stripClaude("{++abc++} x {++y++}"), "abc x y");
+});
 console.log(`${n - fail}/${n} tests passed`); process.exit(fail ? 1 : 0);

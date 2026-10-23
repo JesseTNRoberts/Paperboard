@@ -62,6 +62,9 @@ svg#links marker path { fill:var(--ink-soft); stroke:none; }
 .tabs { position:absolute; left:10px; right:6px; top:100%; display:flex; gap:3px; flex-wrap:nowrap; overflow:hidden; pointer-events:none; }
 .tab { font:600 calc(11px * var(--ts, 1))/1 var(--ui); letter-spacing:.03em; padding:2px 6px 3px; border-radius:0 0 4px 4px; white-space:nowrap; flex:none; max-width:110px; overflow:hidden; text-overflow:ellipsis; }
 .tab.adjtab { background:var(--select); color:#1d2a2e; }
+.tab.claudetab { background:#1f3f8f; color:#fff; }
+.claudetext { color:#1f3f8f; }
+@media (prefers-color-scheme: dark) { .claudetext { color:#8fb0ff; } }
 /* zoomed far out, titles grow (--zf) so the whole document stays readable */
 #world[data-zoom="far"] .tab { font-size:calc(9px * var(--ts, 1) * var(--zf, 1)); padding:3px 8px 5px; max-width:none; }
 #world[data-zoom="far"] .card .ci { justify-content:center; }

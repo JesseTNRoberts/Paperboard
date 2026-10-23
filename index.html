@@ -62,6 +62,9 @@ svg#links marker path { fill:var(--ink-soft); stroke:none; }
 .tabs { position:absolute; left:10px; right:6px; top:100%; display:flex; gap:3px; flex-wrap:nowrap; overflow:hidden; pointer-events:none; }
 .tab { font:600 calc(11px * var(--ts, 1))/1 var(--ui); letter-spacing:.03em; padding:2px 6px 3px; border-radius:0 0 4px 4px; white-space:nowrap; flex:none; max-width:110px; overflow:hidden; text-overflow:ellipsis; }
 .tab.adjtab { background:var(--select); color:#1d2a2e; }
+.tab.claudetab { background:#1f3f8f; color:#fff; }
+.claudetext { color:#1f3f8f; }
+@media (prefers-color-scheme: dark) { .claudetext { color:#8fb0ff; } }
 /* zoomed far out, titles grow (--zf) so the whole document stays readable */
 #world[data-zoom="far"] .tab { font-size:calc(9px * var(--ts, 1) * var(--zf, 1)); padding:3px 8px 5px; max-width:none; }
 #world[data-zoom="far"] .card .ci { justify-content:center; }
@@ -655,12 +658,16 @@ const UNI_ONEWAY = { "\u2011": "-", "\u2009": "\\,", "\u202F": "\\,", "\u200B": 
 const UNI_ONEWAY_RE = new RegExp("[" + Object.keys(UNI_ONEWAY).join("") + "]", "g");
 /* the same table as a preamble block, so pdfLaTeX also knows these characters inside math, in references.bib and in
    the template's own text. It only acts under pdfLaTeX (XeLaTeX and LuaLaTeX handle Unicode themselves). */
-const UNI_BLOCK_START = "% ---- PAPERBOARD UNICODE START (written by Paperboard) ----", UNI_BLOCK_END = "% ---- PAPERBOARD UNICODE END ----";
+const UNI_BLOCK_START = "% ---- PAPERBOARD PREAMBLE START (written by Paperboard) ----", UNI_BLOCK_END = "% ---- PAPERBOARD PREAMBLE END ----";
 function unicodePreamble() {
   const decl = Object.entries({ ...UNI_TEX, ...UNI_ONEWAY }).map(([c, tex]) => `\\DeclareUnicodeCharacter{${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}}{${tex}}`);
-  return [UNI_BLOCK_START, "\\ifdefined\\Umathchar\\else\\ifdefined\\DeclareUnicodeCharacter", ...decl, "\\fi\\fi", UNI_BLOCK_END].join("\n");
+  return [UNI_BLOCK_START, "\\ifdefined\\Umathchar\\else\\ifdefined\\DeclareUnicodeCharacter", ...decl, "\\fi\\fi",
+    "% Text Claude wrote that you haven't approved yet is \\claude{…}, in dark blue. To show it all in black, put",
+    "% \\newcommand{\\claude}[1]{#1} in the template's preamble. To approve a passage, remove its \\claude{ } wrapper.",
+    "\\RequirePackage{xcolor}", "\\definecolor{paperboardclaude}{RGB}{0,45,140}",
+    "\\ifdefined\\claude\\else\\DeclareRobustCommand{\\claude}[1]{{\\color{paperboardclaude}#1}}\\fi", UNI_BLOCK_END].join("\n");
 }
-const stripUnicodePreamble = t => String(t).replace(new RegExp("\\n?" + UNI_BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + UNI_BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\n?"), "\n");
+const stripUnicodePreamble = t => String(t).replace(/\n?% ---- PAPERBOARD (?:UNICODE|PREAMBLE) START[\s\S]*?% ---- PAPERBOARD (?:UNICODE|PREAMBLE) END ----\n?/, "\n");
 /* characters pdfLaTeX may still not know: beyond Latin, not in the table, not the usual typographic ones */
 const PDFTEX_SAFE = /[\u0000-ɏ–—‘’‚“”„†‡•…‰‹›€™ -ÿ]/;
 function unknownChars(t) { const out = new Map(); for (const c of String(t)) if (!PDFTEX_SAFE.test(c) && !(c in UNI_TEX) && !(c in UNI_ONEWAY)) out.set(c, (out.get(c) || 0) + 1); return out; }
@@ -673,9 +680,85 @@ function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 
   const keys = items.map(i => i.key).join(","), pre = items[0].pre, post = items[items.length - 1].post;
   return pre ? `\\citep[${pre}][${post}]{${keys}}` : post ? `\\citep[${post}]{${keys}}` : `\\citep{${keys}}`;
 }
+/* ---------- Claude's text, until the author approves it: {++ … ++} in a beat, \claude{…} in LaTeX (dark blue) ---------- */
+const CL_OPEN = "{++", CL_CLOSE = "++}";
+function claudeSegs(text, open = false) {   // [[text, isClaude], …] and whether a span is still open at the end
+  const segs = []; let cur = "", st = open;
+  for (let k = 0; k < text.length;) {
+    if (!st && text.startsWith(CL_OPEN, k)) { if (cur) segs.push([cur, st]); cur = ""; st = true; k += 3; continue; }
+    if (st && text.startsWith(CL_CLOSE, k)) { if (cur) segs.push([cur, st]); cur = ""; st = false; k += 3; continue; }
+    cur += text[k++];
+  }
+  if (cur) segs.push([cur, st]);
+  return { segs, open: st };
+}
+function segsText(segs) {   // back to text, adjacent runs joined, markers only around non-empty Claude runs
+  const runs = [];
+  for (const [t, c] of segs) { if (!t) continue; const last = runs[runs.length - 1]; if (last && last[1] === c) last[0] += t; else runs.push([t, c]); }
+  return runs.map(([t, c]) => c ? CL_OPEN + t + CL_CLOSE : t).join("");
+}
+const hasClaude = t => String(t || "").includes(CL_OPEN);
+const BLOCK_LINE = /^\s*(\\begin\{|\\end\{|\$\$|\\\[|\\\]|```|\||(-{3,}|\*{3,}|_{3,})\s*$)/;
+/* one span per line, with list, heading and quote markers outside it, so each line converts on its own.
+   Block lines (environments, display math, tables, code fences) aren't coloured. */
+function claudeLines(md) {
+  let open = false;
+  return String(md ?? "").split("\n").map(line => {
+    const r = claudeSegs(line, open); open = r.open;
+    const plain = r.segs.map(x => x[0]).join("");
+    if (!r.segs.some(x => x[1])) return plain === line ? line : plain;
+    if (BLOCK_LINE.test(plain)) return plain;
+    const lead = plain.match(/^(\s*(?:(?:[-*+]|\d+[.)])\s+|#{1,6}\s+|>\s?)*)/)[0];
+    const segs = []; let skip = lead.length;
+    for (const [t, c] of r.segs) { if (skip >= t.length) { skip -= t.length; continue; } segs.push([t.slice(skip), c]); skip = 0; }
+    return lead + segsText(segs);
+  }).join("\n");
+}
+/* the author typed: text inserted inside a Claude span is the author's, so the span is split around it.
+   Returns { text, caret } (caret: where the end of the insertion is now), or null if nothing changes. */
+function typedApproved(before, after, caret) {   // caret: where the cursor is after typing, which settles where ambiguous text went
+  before = String(before ?? ""); after = String(after ?? "");
+  if (before === after || !hasClaude(before)) return null;
+  let p, q; const d = after.length - before.length;
+  if (caret != null && d > 0 && caret >= d && after.slice(0, caret - d) === before.slice(0, caret - d) && after.slice(caret) === before.slice(caret - d)) { p = caret - d; q = after.length - caret; }
+  else {
+    p = 0; while (p < before.length && p < after.length && before[p] === after[p]) p++;
+    q = 0; while (q < before.length - p && q < after.length - p && before[before.length - 1 - q] === after[after.length - 1 - q]) q++;
+  }
+  const ins = after.slice(p, after.length - q);
+  if (!ins || ins.includes("{+") || ins.includes("+}") || /^\+|\+$/.test(ins)) return null;
+  if (!claudeSegs(before.slice(0, p)).open) return null;   // not inside a span
+  const left = (after.slice(0, p) + CL_CLOSE + ins).replace(/\{\+\+\+\+\}/g, ""), right = (CL_OPEN + after.slice(after.length - q)).replace(/\{\+\+\+\+\}/g, "");
+  return { text: left + right, caret: left.length };
+}
+/* the same for a whole edit made elsewhere (Overleaf): every word the author added inside a span becomes theirs */
+function approveTyped(before, after) {
+  before = String(before ?? ""); after = String(after ?? "");
+  if (before === after || !hasClaude(after)) return after;
+  const tok = t => t.match(/\{\+\+|\+\+\}|\s+|[^\s{+]+|[{+]/g) || [];
+  const A = tok(before), B = tok(after), kept = new Set(lcsPairs(A, B).values());
+  const segs = []; let st = false;
+  B.forEach((t, j) => {
+    if (t === CL_OPEN && !st) { st = true; return; }
+    if (t === CL_CLOSE && st) { st = false; return; }
+    segs.push([t, st && (kept.has(j) || /^\s+$/.test(t))]);
+  });
+  return segsText(segs);
+}
+/* approve: Claude's text between raw positions s and e (the whole text without a range) becomes the author's */
+function approveRange(text, s = 0, e = Infinity) {
+  text = String(text ?? ""); const out = []; let st = false, k = 0;
+  while (k < text.length) {
+    if (!st && text.startsWith(CL_OPEN, k)) { st = true; k += 3; continue; }
+    if (st && text.startsWith(CL_CLOSE, k)) { st = false; k += 3; continue; }
+    out.push([text[k], st && !(k >= s && k < e)]); k++;
+  }
+  return segsText(out);
+}
+const stripClaude = t => approveRange(t);
 function mdInline(src) {
   const keep = [], hold = t => "\u0000" + (keep.push(t) - 1) + "\u0000";
-  let s = String(src ?? "");
+  let s = String(src ?? "").replace(/\{\+\+([\s\S]*?)\+\+\}/g, (m, x) => x.trim() ? "\uE006" + x + "\uE007" : x);
   // 1. code, math and LaTeX commands are kept as they are
   s = s.replace(/`([^`]+)`/g, (m, c) => hold(`\\texttt{${texEscape(c)}}`));
   s = s.replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$(?=\S)(?:[^$\\\n]|\\.)+?(?<=\S)\$/g, m => hold(m));
@@ -698,16 +781,16 @@ function mdInline(src) {
   s = out;
   // 2. citations and cross-references: [@a; @b], [see @a, p. 3], @a in running text, @fig:label
   s = s.replace(/\[([^\[\]]*@[\w:.\-\/+][^\[\]]*)\]/g, (m, inner) => { const c = citeCmd(inner); return c ? hold(c) : m; });
-  s = s.replace(/(^|[\s(])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
+  s = s.replace(/(^|[\s(\uE006])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
   // 3. links, emphasis, quotes
   s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? "" : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
   s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "\uE000$1\uE001").replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, "$1\uE000$2\uE001");
   s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
-  s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
-  s = s.replace(/(^|[\s(\[])~(?=[\d.+\-])/g, (m, pre) => pre + hold("\\ensuremath{\\sim}"));   // "~1e-6" means approximately
+  s = s.replace(/(^|[\s(\[\u2014\uE006-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
+  s = s.replace(/(^|[\s(\[\uE006])~(?=[\d.+\-])/g, (m, pre) => pre + hold("\\ensuremath{\\sim}"));   // "~1e-6" means approximately
   // 4. escape what's left, then put the kept pieces back
   s = uniToTex(texEscape(s)).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
-  return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
+  return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\uE006/g, "\\claude{").replace(/\uE007/g, "}");
 }
 function mdTableToLatex(lines) {
   const cells = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
@@ -717,7 +800,7 @@ function mdTableToLatex(lines) {
 }
 function imagePath(p) { return String(p || "").trim().replace(/^<|>$/g, "").replace(/^\.\//, "").replace(/^(\.\.\/)+/, ""); }
 function mdToLatex(md, opts = {}) {
-  const lines = String(md ?? "").replace(/\r/g, "").split("\n"), out = [];
+  const lines = claudeLines(String(md ?? "").replace(/\r/g, "")).split("\n"), out = [];
   let i = 0, para = [];
   const flush = () => { if (para.length) { out.push(mdInline(para.join("\n"))); para = []; } };
   const figure = (alt, path) => `\\begin{figure}[${opts.placement || "t"}]\n  \\centering\n  \\includegraphics[width=\\linewidth]{${imagePath(path)}}\n${alt ? `  \\caption{${mdInline(alt)}}\n` : ""}\\end{figure}`;
@@ -810,9 +893,19 @@ function gitConflictSides(text) {
   return { conflict: sawAny, hasBase: sawBase, ours: ours.join("\n"), base: base.join("\n"), theirs: theirs.join("\n") };
 }
 /* LaTeX back to Markdown, only where it converts forward again to exactly the same LaTeX; otherwise the LaTeX itself (beats accept it) */
+function unwrapCmd(t, name, fn) {   // \name{…} with balanced braces, replaced by fn(inside)
+  let out = "", i = 0; const head = "\\" + name + "{";
+  for (;;) {
+    const at = t.indexOf(head, i); if (at < 0) return out + t.slice(i);
+    let d = 0, k = at + head.length - 1;
+    for (; k < t.length; k++) { if (t[k] === "\\") { k++; continue; } if (t[k] === "{") d++; else if (t[k] === "}" && --d === 0) break; }
+    if (k >= t.length) return out + t.slice(i);
+    out += t.slice(i, at) + fn(t.slice(at + head.length, k)); i = k + 1;
+  }
+}
 function latexToMd(tex) {
   const t = String(tex ?? "");
-  let md = t
+  let md = unwrapCmd(t, "claude", x => CL_OPEN + x + CL_CLOSE)
     .replace(/\\textbf\{([^{}]*)\}/g, "**$1**").replace(/\\(?:emph|textit)\{([^{}]*)\}/g, "*$1*")
     .replace(/\\texttt\{([^{}]*)\}/g, (m, c) => "`" + c.replace(/\\([&%#_{}$])/g, "$1").replace(/\\textbackslash\{\}/g, "\\") + "`")
     .replace(/\\citep\[([^\]]*)\]\[([^\]]*)\]\{([^}]+)\}/g, (m, pre, post, keys) => "[" + keys.split(",").map((k, i, a) => (i === 0 && pre ? pre + " " : "") + "@" + k.trim() + (i === a.length - 1 && post ? ", " + post : "")).join("; ") + "]")
@@ -828,7 +921,7 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
+  mdToLatex, mdInline, texEscape, claudeLines, typedApproved, approveTyped, approveRange, stripClaude, hasClaude, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
 </script>
 <script>
 "use strict";
@@ -1288,7 +1381,7 @@ function docOrder() {   // section, then left to right, then top to bottom
 }
 const bodyWords = b => { const p = beatParts(b.text); return p.type === "Paragraph" ? countWords(p.body) : 0; };
 function buildDigest(order) {
-  const flags = { adjust: [], empty: [], open: [], conflict: [], stale: [], missing: [] };
+  const flags = { adjust: [], claude: [], empty: [], open: [], conflict: [], stale: [], missing: [] };
   let n = 0;
   const secs = order.map(({ act, beats: list }, si) => {
     const w = list.reduce((s, b) => s + bodyWords(b), 0);
@@ -1298,6 +1391,7 @@ function buildDigest(order) {
       if (p.adj) flags.adjust.push(b.title);
       if (isBlankBeat(p)) flags.empty.push(b.title);
       if (/\[Open\]/i.test(b.text)) flags.open.push(b.title);
+      if (hasClaude(p.body)) flags.claude.push(b.title);
       if (conflicts[b.key]) flags.conflict.push(b.title);
       const li = linked[b.key]; if (li?.stale) flags.stale.push(`${b.title} (changed: ${li.why.join(", ")})`); if (li?.missing) flags.missing.push(b.title);
       const deps = [inputsOf(b.key).length ? "depends on: " + inputsOf(b.key).map(l => beatByKey(l.from).title).join(", ") : null, feedsOf(b.key).length ? "used by: " + feedsOf(b.key).map(l => beatByKey(l.to).title).join(", ") : null];
@@ -1309,7 +1403,7 @@ function buildDigest(order) {
   return `# Digest\n\n_Generated by the storyboard ${nowLabel()}. Do not edit: it is rewritten automatically._\n\n` +
     `Every live beat in document order (section, then left to right, then top to bottom), with type, stream, tags, status and full text.\n\n` +
     `**Sections:** ${order.map(o => o.act.name).join(", ")}\n\n**Streams:** ${meta.lanes.map(l => l.name).join(", ")}\n\n**Tags:** ${meta.tags.map(t => t.name).join(", ") || "none"}\n\n` +
-    `## Checks\n\n${[list("Beats with a Claude adjust", flags.adjust), list("Empty beats", flags.empty), list("Beats with [Open] items", flags.open),
+    `## Checks\n\n${[list("Beats with a Claude adjust", flags.adjust), list("Beats with Claude's text not yet approved ({++ … ++})", flags.claude), list("Empty beats", flags.empty), list("Beats with [Open] items", flags.open),
       list("Stale figures and experiments (inputs or code changed after the output or last run)", flags.stale), list("Figures and tables whose output file doesn't exist", flags.missing),
       list("Beats waiting for the author's choice between two versions", flags.conflict), list("Marked for deletion", toDelete.map(m => m.title))].join("\n")}\n\n` + secs;
 }
@@ -1448,12 +1542,12 @@ function paintCard(b) {
   if (flashKeys.has(b.key)) { flashKeys.delete(b.key); setTimeout(() => el.classList.remove("flash"), 1900); }
   el.style.left = m.x + "px"; el.style.top = m.y + "px";
   el.style.borderColor = safeColor(meta.lanes[laneIndexAt(m.y)]?.color);
-  const preview = p.ok ? (p.syn || p.body) : p.body;   // the synopsis, or the beat itself if there's none
+  const preview = stripClaude(p.ok ? (p.syn || p.body) : p.body);   // the synopsis, or the beat itself if there's none
   const li = linked[b.key], st = p.status || (p.type === "Experiment" ? p.fields.outcome || "" : "");
   if (li?.url) el.classList.add("hasimg");
   el.innerHTML = `<div class="ci"><div class="ty">${icon(p.type)}<span>${esc(p.type)}</span>${st ? `<span class="st">${esc(st)}</span>` : ""}</div><h3>${esc(b.title)}</h3>` +
     (li?.url ? `<img class="thumb" src="${esc(li.url)}" alt="" draggable="false">` : `<p>${esc(preview)}</p>`) + `</div>` +
-    (tg.length || p.adj || li?.stale || li?.missing ? `<div class="tabs">${li?.stale ? `<span class="tab staletab" title="Changed since it was last made: ${esc(li.why.join(", "))}">Stale</span>` : ""}${li?.missing ? `<span class="tab staletab" title="The output file doesn't exist yet">No output</span>` : ""}${p.adj ? `<span class="tab adjtab" title="This beat has a Claude adjust">Claude adjust</span>` : ""}${tg.map(t => `<span class="tab" style="background:${safeColor(t.color)};color:${inkOn(t.color)}">${esc(t.name)}</span>`).join("")}</div>` : "");
+    (tg.length || p.adj || li?.stale || li?.missing || hasClaude(p.body) ? `<div class="tabs">${li?.stale ? `<span class="tab staletab" title="Changed since it was last made: ${esc(li.why.join(", "))}">Stale</span>` : ""}${li?.missing ? `<span class="tab staletab" title="The output file doesn't exist yet">No output</span>` : ""}${p.adj ? `<span class="tab adjtab" title="This beat has a Claude adjust">Claude adjust</span>` : ""}${hasClaude(p.body) ? `<span class="tab claudetab" title="Claude's text here isn't approved yet">To approve</span>` : ""}${tg.map(t => `<span class="tab" style="background:${safeColor(t.color)};color:${inkOn(t.color)}">${esc(t.name)}</span>`).join("")}</div>` : "");
   el.setAttribute("aria-label", `${p.type}: ${b.title}`);
 }
 function buildCard(b) {
@@ -1825,9 +1919,12 @@ function fallbackMd(src) {   // used when the Markdown library didn't load
     return `<p>${inline(p).replace(/\n/g, "<br>")}</p>`;
   }).join("");
 }
-function renderMd(src) {
-  if (window.marked) { try { return window.marked.parse(src || "", { breaks: true, gfm: true }); } catch (e) {} }
-  return fallbackMd(src);
+function renderMd(src) {   // Claude's unapproved text ({++ … ++}) shows in dark blue
+  const pre = claudeLines(src || "").replace(/\{\+\+/g, "\uE006").replace(/\+\+\}/g, "\uE007");
+  let html = null;
+  if (window.marked) { try { html = window.marked.parse(pre, { breaks: true, gfm: true }); } catch (e) {} }
+  if (html == null) html = fallbackMd(pre);
+  return html.replace(/\uE006/g, '<span class="claudetext">').replace(/\uE007/g, "</span>");
 }
 
 /* ================= panels ================= */
@@ -1878,6 +1975,7 @@ function openBeat(k, focusTitle) {
         <button data-md="bold" title="Bold (⌘B)"><b>B</b></button><button data-md="italic" title="Italic (⌘I)"><i>I</i></button>
         <button data-md="h2" title="Heading">H</button><button data-md="ul" title="Bulleted list">•</button><button data-md="ol" title="Numbered list">1.</button>
         <button data-md="quote" title="Quote">❝</button><button data-md="cite" title="Citation [@key]">[@]</button>
+        <button data-md="approve" id="f-approve" title="Approve Claude's text: the selection, or all of this beat" hidden>Approve</button>
         <span class="grow"></span>
         <button data-view="write">Write</button><button data-view="split">Side by side</button><button data-view="preview">Preview</button>
         <span class="wc" id="f-wc"></span></div>
@@ -1894,7 +1992,7 @@ function openBeat(k, focusTitle) {
   panel.querySelector(".x").onclick = closePanel;
   wireDeps(k);
   const ta = $("f-text"), prevEl = $("f-prev"), split = $("f-split");
-  const refresh = () => { $("f-wc").textContent = fmtN(countWords(ta.value)) + " words"; if (split.dataset.view !== "write") { prevEl.innerHTML = renderMd(ta.value); resolveImages(prevEl); } };
+  const refresh = () => { $("f-wc").textContent = fmtN(countWords(stripClaude(ta.value))) + " words"; if ($("f-approve")) $("f-approve").hidden = !hasClaude(ta.value); if (split.dataset.view !== "write") { prevEl.innerHTML = renderMd(ta.value); resolveImages(prevEl); } };
   const setView = v => {
     if (v === "split" && editorSize === "popup") v = "write";
     editorView = v; split.dataset.view = v; LS.set("editorView", v);
@@ -1923,7 +2021,11 @@ function openBeat(k, focusTitle) {
     return { text: v.slice(ls, end).split("\n").map((l, i) => (typeof pf === "function" ? pf(i) : pf) + l).join("\n"), from: ls, to: end };
   });
   const actions = { bold: () => wrapSel("**"), italic: () => wrapSel("*"), h2: () => prefixLines("## "), ul: () => prefixLines("- "), ol: () => prefixLines(i => (i + 1) + ". "), quote: () => prefixLines("> "),
-    cite: () => edit((sl, v, s) => ({ text: `[@${sl}]`, selStart: s + 2, selEnd: s + 2 + sl.length })) };
+    cite: () => edit((sl, v, s) => ({ text: `[@${sl}]`, selStart: s + 2, selEnd: s + 2 + sl.length })),
+    approve: () => {   // the selection, or the whole beat; the caret stays where it was
+      const s0 = ta.selectionStart, e0 = ta.selectionEnd, v = ta.value; if (!hasClaude(v)) return;
+      const out = approveRange(v.slice(0, e0) + "\uE00F" + v.slice(e0), s0 === e0 ? 0 : s0, s0 === e0 ? Infinity : e0), caret = out.indexOf("\uE00F"), nv = out.replace("\uE00F", "");
+      if (nv === v) return; ta.value = nv; ta.focus(); ta.setSelectionRange(caret, caret); ta.dispatchEvent(new Event("input")); } };
   panel.querySelectorAll("[data-md]").forEach(btn => btn.onclick = () => actions[btn.dataset.md]());
   ta.addEventListener("keydown", e => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") { e.preventDefault(); actions.bold(); }
@@ -1944,6 +2046,10 @@ function openBeat(k, focusTitle) {
   // every tab's box saves, and each changes only its own part of the file
   PARTS.forEach(([, part, id]) => $(id).addEventListener("input", e => {
     const cur = beats.find(x => x.key === k); if (!cur || conflicts[k]) return;
+    if (part === "body" && e.isTrusted) {   // what the author types is theirs, even inside Claude's text
+      const fix = typedApproved(beatParts(cur.text).body, e.target.value, e.target.selectionEnd);
+      if (fix) { e.target.value = fix.text; e.target.setSelectionRange(fix.caret, fix.caret); }
+    }
     cur.text = setPart(cur.text, part, e.target.value);
     if (part === "adj") $("f-adjdot").hidden = !e.target.value.trim();
     paintCard(cur); saveTextSoon(cur); if (part === "body") refresh();
@@ -2838,12 +2944,12 @@ function applyOverleaf(baseTex, theirsTex, notes) {   // merge Overleaf's edits 
     else {
       const r = merge3(bBlock, mine, tBlock);
       if (r.conflict) {
-        conflicts[key] = { who: "Overleaf", mine: b.text, theirs: setPart(b.text, "body", bodyFromLatex(p, b, tBlock)), merged: setPart(b.text, "body", r.text) };
+        conflicts[key] = { who: "Overleaf", mine: b.text, theirs: setPart(b.text, "body", approveTyped(p.body, bodyFromLatex(p, b, tBlock))), merged: setPart(b.text, "body", r.text) };
         markChanged(key); paintCard(b); updateConflictBtn(); n++; continue;
       }
       merged = r.text;
     }
-    const nt = setPart(b.text, "body", bodyFromLatex(p, b, merged));
+    const nt = setPart(b.text, "body", approveTyped(p.body, bodyFromLatex(p, b, merged)));   // words typed in Overleaf are the author's
     if (nt !== b.text) { applyBeatText(b, nt); markChanged(key); saveTextSoon(b); n++; }
   }
   for (const key of B.blocks.keys()) if (!T.blocks.has(key) && beatByKey(key)) notes.push(`The “% beat:” line for “${beatByKey(key).title}” was removed in Overleaf, so edits there couldn't be matched. Put the line back in Overleaf.`);

@@ -291,12 +291,16 @@ const UNI_ONEWAY = { "\u2011": "-", "\u2009": "\\,", "\u202F": "\\,", "\u200B": 
 const UNI_ONEWAY_RE = new RegExp("[" + Object.keys(UNI_ONEWAY).join("") + "]", "g");
 /* the same table as a preamble block, so pdfLaTeX also knows these characters inside math, in references.bib and in
    the template's own text. It only acts under pdfLaTeX (XeLaTeX and LuaLaTeX handle Unicode themselves). */
-const UNI_BLOCK_START = "% ---- PAPERBOARD UNICODE START (written by Paperboard) ----", UNI_BLOCK_END = "% ---- PAPERBOARD UNICODE END ----";
+const UNI_BLOCK_START = "% ---- PAPERBOARD PREAMBLE START (written by Paperboard) ----", UNI_BLOCK_END = "% ---- PAPERBOARD PREAMBLE END ----";
 function unicodePreamble() {
   const decl = Object.entries({ ...UNI_TEX, ...UNI_ONEWAY }).map(([c, tex]) => `\\DeclareUnicodeCharacter{${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}}{${tex}}`);
-  return [UNI_BLOCK_START, "\\ifdefined\\Umathchar\\else\\ifdefined\\DeclareUnicodeCharacter", ...decl, "\\fi\\fi", UNI_BLOCK_END].join("\n");
+  return [UNI_BLOCK_START, "\\ifdefined\\Umathchar\\else\\ifdefined\\DeclareUnicodeCharacter", ...decl, "\\fi\\fi",
+    "% Text Claude wrote that you haven't approved yet is \\claude{…}, in dark blue. To show it all in black, put",
+    "% \\newcommand{\\claude}[1]{#1} in the template's preamble. To approve a passage, remove its \\claude{ } wrapper.",
+    "\\RequirePackage{xcolor}", "\\definecolor{paperboardclaude}{RGB}{0,45,140}",
+    "\\ifdefined\\claude\\else\\DeclareRobustCommand{\\claude}[1]{{\\color{paperboardclaude}#1}}\\fi", UNI_BLOCK_END].join("\n");
 }
-const stripUnicodePreamble = t => String(t).replace(new RegExp("\\n?" + UNI_BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + UNI_BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\n?"), "\n");
+const stripUnicodePreamble = t => String(t).replace(/\n?% ---- PAPERBOARD (?:UNICODE|PREAMBLE) START[\s\S]*?% ---- PAPERBOARD (?:UNICODE|PREAMBLE) END ----\n?/, "\n");
 /* characters pdfLaTeX may still not know: beyond Latin, not in the table, not the usual typographic ones */
 const PDFTEX_SAFE = /[\u0000-ɏ–—‘’‚“”„†‡•…‰‹›€™ -ÿ]/;
 function unknownChars(t) { const out = new Map(); for (const c of String(t)) if (!PDFTEX_SAFE.test(c) && !(c in UNI_TEX) && !(c in UNI_ONEWAY)) out.set(c, (out.get(c) || 0) + 1); return out; }
@@ -309,9 +313,85 @@ function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 
   const keys = items.map(i => i.key).join(","), pre = items[0].pre, post = items[items.length - 1].post;
   return pre ? `\\citep[${pre}][${post}]{${keys}}` : post ? `\\citep[${post}]{${keys}}` : `\\citep{${keys}}`;
 }
+/* ---------- Claude's text, until the author approves it: {++ … ++} in a beat, \claude{…} in LaTeX (dark blue) ---------- */
+const CL_OPEN = "{++", CL_CLOSE = "++}";
+function claudeSegs(text, open = false) {   // [[text, isClaude], …] and whether a span is still open at the end
+  const segs = []; let cur = "", st = open;
+  for (let k = 0; k < text.length;) {
+    if (!st && text.startsWith(CL_OPEN, k)) { if (cur) segs.push([cur, st]); cur = ""; st = true; k += 3; continue; }
+    if (st && text.startsWith(CL_CLOSE, k)) { if (cur) segs.push([cur, st]); cur = ""; st = false; k += 3; continue; }
+    cur += text[k++];
+  }
+  if (cur) segs.push([cur, st]);
+  return { segs, open: st };
+}
+function segsText(segs) {   // back to text, adjacent runs joined, markers only around non-empty Claude runs
+  const runs = [];
+  for (const [t, c] of segs) { if (!t) continue; const last = runs[runs.length - 1]; if (last && last[1] === c) last[0] += t; else runs.push([t, c]); }
+  return runs.map(([t, c]) => c ? CL_OPEN + t + CL_CLOSE : t).join("");
+}
+const hasClaude = t => String(t || "").includes(CL_OPEN);
+const BLOCK_LINE = /^\s*(\\begin\{|\\end\{|\$\$|\\\[|\\\]|```|\||(-{3,}|\*{3,}|_{3,})\s*$)/;
+/* one span per line, with list, heading and quote markers outside it, so each line converts on its own.
+   Block lines (environments, display math, tables, code fences) aren't coloured. */
+function claudeLines(md) {
+  let open = false;
+  return String(md ?? "").split("\n").map(line => {
+    const r = claudeSegs(line, open); open = r.open;
+    const plain = r.segs.map(x => x[0]).join("");
+    if (!r.segs.some(x => x[1])) return plain === line ? line : plain;
+    if (BLOCK_LINE.test(plain)) return plain;
+    const lead = plain.match(/^(\s*(?:(?:[-*+]|\d+[.)])\s+|#{1,6}\s+|>\s?)*)/)[0];
+    const segs = []; let skip = lead.length;
+    for (const [t, c] of r.segs) { if (skip >= t.length) { skip -= t.length; continue; } segs.push([t.slice(skip), c]); skip = 0; }
+    return lead + segsText(segs);
+  }).join("\n");
+}
+/* the author typed: text inserted inside a Claude span is the author's, so the span is split around it.
+   Returns { text, caret } (caret: where the end of the insertion is now), or null if nothing changes. */
+function typedApproved(before, after, caret) {   // caret: where the cursor is after typing, which settles where ambiguous text went
+  before = String(before ?? ""); after = String(after ?? "");
+  if (before === after || !hasClaude(before)) return null;
+  let p, q; const d = after.length - before.length;
+  if (caret != null && d > 0 && caret >= d && after.slice(0, caret - d) === before.slice(0, caret - d) && after.slice(caret) === before.slice(caret - d)) { p = caret - d; q = after.length - caret; }
+  else {
+    p = 0; while (p < before.length && p < after.length && before[p] === after[p]) p++;
+    q = 0; while (q < before.length - p && q < after.length - p && before[before.length - 1 - q] === after[after.length - 1 - q]) q++;
+  }
+  const ins = after.slice(p, after.length - q);
+  if (!ins || ins.includes("{+") || ins.includes("+}") || /^\+|\+$/.test(ins)) return null;
+  if (!claudeSegs(before.slice(0, p)).open) return null;   // not inside a span
+  const left = (after.slice(0, p) + CL_CLOSE + ins).replace(/\{\+\+\+\+\}/g, ""), right = (CL_OPEN + after.slice(after.length - q)).replace(/\{\+\+\+\+\}/g, "");
+  return { text: left + right, caret: left.length };
+}
+/* the same for a whole edit made elsewhere (Overleaf): every word the author added inside a span becomes theirs */
+function approveTyped(before, after) {
+  before = String(before ?? ""); after = String(after ?? "");
+  if (before === after || !hasClaude(after)) return after;
+  const tok = t => t.match(/\{\+\+|\+\+\}|\s+|[^\s{+]+|[{+]/g) || [];
+  const A = tok(before), B = tok(after), kept = new Set(lcsPairs(A, B).values());
+  const segs = []; let st = false;
+  B.forEach((t, j) => {
+    if (t === CL_OPEN && !st) { st = true; return; }
+    if (t === CL_CLOSE && st) { st = false; return; }
+    segs.push([t, st && (kept.has(j) || /^\s+$/.test(t))]);
+  });
+  return segsText(segs);
+}
+/* approve: Claude's text between raw positions s and e (the whole text without a range) becomes the author's */
+function approveRange(text, s = 0, e = Infinity) {
+  text = String(text ?? ""); const out = []; let st = false, k = 0;
+  while (k < text.length) {
+    if (!st && text.startsWith(CL_OPEN, k)) { st = true; k += 3; continue; }
+    if (st && text.startsWith(CL_CLOSE, k)) { st = false; k += 3; continue; }
+    out.push([text[k], st && !(k >= s && k < e)]); k++;
+  }
+  return segsText(out);
+}
+const stripClaude = t => approveRange(t);
 function mdInline(src) {
   const keep = [], hold = t => "\u0000" + (keep.push(t) - 1) + "\u0000";
-  let s = String(src ?? "");
+  let s = String(src ?? "").replace(/\{\+\+([\s\S]*?)\+\+\}/g, (m, x) => x.trim() ? "\uE006" + x + "\uE007" : x);
   // 1. code, math and LaTeX commands are kept as they are
   s = s.replace(/`([^`]+)`/g, (m, c) => hold(`\\texttt{${texEscape(c)}}`));
   s = s.replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$(?=\S)(?:[^$\\\n]|\\.)+?(?<=\S)\$/g, m => hold(m));
@@ -334,16 +414,16 @@ function mdInline(src) {
   s = out;
   // 2. citations and cross-references: [@a; @b], [see @a, p. 3], @a in running text, @fig:label
   s = s.replace(/\[([^\[\]]*@[\w:.\-\/+][^\[\]]*)\]/g, (m, inner) => { const c = citeCmd(inner); return c ? hold(c) : m; });
-  s = s.replace(/(^|[\s(])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
+  s = s.replace(/(^|[\s(\uE006])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
   // 3. links, emphasis, quotes
   s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? "" : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
   s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "\uE000$1\uE001").replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, "$1\uE000$2\uE001");
   s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
-  s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
-  s = s.replace(/(^|[\s(\[])~(?=[\d.+\-])/g, (m, pre) => pre + hold("\\ensuremath{\\sim}"));   // "~1e-6" means approximately
+  s = s.replace(/(^|[\s(\[\u2014\uE006-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
+  s = s.replace(/(^|[\s(\[\uE006])~(?=[\d.+\-])/g, (m, pre) => pre + hold("\\ensuremath{\\sim}"));   // "~1e-6" means approximately
   // 4. escape what's left, then put the kept pieces back
   s = uniToTex(texEscape(s)).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
-  return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
+  return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\uE006/g, "\\claude{").replace(/\uE007/g, "}");
 }
 function mdTableToLatex(lines) {
   const cells = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
@@ -353,7 +433,7 @@ function mdTableToLatex(lines) {
 }
 function imagePath(p) { return String(p || "").trim().replace(/^<|>$/g, "").replace(/^\.\//, "").replace(/^(\.\.\/)+/, ""); }
 function mdToLatex(md, opts = {}) {
-  const lines = String(md ?? "").replace(/\r/g, "").split("\n"), out = [];
+  const lines = claudeLines(String(md ?? "").replace(/\r/g, "")).split("\n"), out = [];
   let i = 0, para = [];
   const flush = () => { if (para.length) { out.push(mdInline(para.join("\n"))); para = []; } };
   const figure = (alt, path) => `\\begin{figure}[${opts.placement || "t"}]\n  \\centering\n  \\includegraphics[width=\\linewidth]{${imagePath(path)}}\n${alt ? `  \\caption{${mdInline(alt)}}\n` : ""}\\end{figure}`;
@@ -446,9 +526,19 @@ function gitConflictSides(text) {
   return { conflict: sawAny, hasBase: sawBase, ours: ours.join("\n"), base: base.join("\n"), theirs: theirs.join("\n") };
 }
 /* LaTeX back to Markdown, only where it converts forward again to exactly the same LaTeX; otherwise the LaTeX itself (beats accept it) */
+function unwrapCmd(t, name, fn) {   // \name{…} with balanced braces, replaced by fn(inside)
+  let out = "", i = 0; const head = "\\" + name + "{";
+  for (;;) {
+    const at = t.indexOf(head, i); if (at < 0) return out + t.slice(i);
+    let d = 0, k = at + head.length - 1;
+    for (; k < t.length; k++) { if (t[k] === "\\") { k++; continue; } if (t[k] === "{") d++; else if (t[k] === "}" && --d === 0) break; }
+    if (k >= t.length) return out + t.slice(i);
+    out += t.slice(i, at) + fn(t.slice(at + head.length, k)); i = k + 1;
+  }
+}
 function latexToMd(tex) {
   const t = String(tex ?? "");
-  let md = t
+  let md = unwrapCmd(t, "claude", x => CL_OPEN + x + CL_CLOSE)
     .replace(/\\textbf\{([^{}]*)\}/g, "**$1**").replace(/\\(?:emph|textit)\{([^{}]*)\}/g, "*$1*")
     .replace(/\\texttt\{([^{}]*)\}/g, (m, c) => "`" + c.replace(/\\([&%#_{}$])/g, "$1").replace(/\\textbackslash\{\}/g, "\\") + "`")
     .replace(/\\citep\[([^\]]*)\]\[([^\]]*)\]\{([^}]+)\}/g, (m, pre, post, keys) => "[" + keys.split(",").map((k, i, a) => (i === 0 && pre ? pre + " " : "") + "@" + k.trim() + (i === a.length - 1 && post ? ", " + post : "")).join("; ") + "]")
@@ -464,4 +554,4 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
+  mdToLatex, mdInline, texEscape, claudeLines, typedApproved, approveTyped, approveRange, stripClaude, hasClaude, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };

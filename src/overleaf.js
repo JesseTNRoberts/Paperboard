@@ -76,12 +76,12 @@ function applyOverleaf(baseTex, theirsTex, notes) {   // merge Overleaf's edits 
     else {
       const r = merge3(bBlock, mine, tBlock);
       if (r.conflict) {
-        conflicts[key] = { who: "Overleaf", mine: b.text, theirs: setPart(b.text, "body", bodyFromLatex(p, b, tBlock)), merged: setPart(b.text, "body", r.text) };
+        conflicts[key] = { who: "Overleaf", mine: b.text, theirs: setPart(b.text, "body", approveTyped(p.body, bodyFromLatex(p, b, tBlock))), merged: setPart(b.text, "body", r.text) };
         markChanged(key); paintCard(b); updateConflictBtn(); n++; continue;
       }
       merged = r.text;
     }
-    const nt = setPart(b.text, "body", bodyFromLatex(p, b, merged));
+    const nt = setPart(b.text, "body", approveTyped(p.body, bodyFromLatex(p, b, merged)));   // words typed in Overleaf are the author's
     if (nt !== b.text) { applyBeatText(b, nt); markChanged(key); saveTextSoon(b); n++; }
   }
   for (const key of B.blocks.keys()) if (!T.blocks.has(key) && beatByKey(key)) notes.push(`The “% beat:” line for “${beatByKey(key).title}” was removed in Overleaf, so edits there couldn't be matched. Put the line back in Overleaf.`);
