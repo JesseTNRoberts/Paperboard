@@ -126,4 +126,30 @@ t("typing character by character (with spaces mid-way) leaves no stray spaces", 
     assert.strictEqual(f, want, part); assert.ok(!/ \n/.test(f.replace(/Synopsis: /, "")), part + " has a space before a newline");
   }
 });
+/* Markdown + LaTeX */
+t("prose specials are escaped, LaTeX passes through", () => {
+  const out = C.mdInline("30% of A&B_c costs $5 #1, but $x_i^2$ and \\SI{3}{\\percent} and \\ref{fig:a} stay");
+  assert.strictEqual(out, "30\\% of A\\&B\\_c costs \\$5 \\#1, but $x_i^2$ and \\SI{3}{\\percent} and \\ref{fig:a} stay");
+});
+t("citations: Pandoc brackets, several keys, prefix/suffix, in-text, cross-refs", () => {
+  assert.strictEqual(C.mdInline("[@a]"), "\\citep{a}");
+  assert.strictEqual(C.mdInline("[@a; @b]"), "\\citep{a,b}");
+  assert.strictEqual(C.mdInline("[see @a, p. 3]"), "\\citep[see][p. 3]{a}");
+  assert.strictEqual(C.mdInline("[@a, ch. 2]"), "\\citep[ch. 2]{a}");
+  assert.strictEqual(C.mdInline("As @smith2020 show"), "As \\citet{smith2020} show");
+  assert.strictEqual(C.mdInline("see @fig:calib and [@tab:x]"), "see \\ref{fig:calib} and \\ref{tab:x}");
+  assert.strictEqual(C.mdInline("mail me at a@b.org"), "mail me at a@b.org");
+});
+t("emphasis, code, quotes, links", () => {
+  assert.strictEqual(C.mdInline('**b** and *i* and _u_ and `a_b` and "q" and [t](https://x.org/a_b)'), '\\textbf{b} and \\emph{i} and \\emph{u} and \\texttt{a\\_b} and ``q\'\' and \\href{https://x.org/a_b}{t}');
+  assert.strictEqual(C.mdInline("snake_case_word stays"), "snake\\_case\\_word stays");
+});
+t("blocks: lists, quotes, images, tables, environments, display math", () => {
+  const out = C.mdToLatex("Para one\nline two.\n\n- a\n- b\n\n1. x\n\n> q\n\n![Cap](../figures/f.png)\n\n| A | B |\n|---|--:|\n| 1 | 2 |\n\n\\begin{equation}\na_1 = 2\n\\end{equation}\n\n$$\nx_2\n$$");
+  for (const want of ["Para one\nline two.", "\\begin{itemize}\n  \\item a\n  \\item b\n\\end{itemize}", "\\begin{enumerate}\n  \\item x\n\\end{enumerate}", "\\begin{quote}\nq\n\\end{quote}",
+    "\\includegraphics[width=\\linewidth]{figures/f.png}", "\\caption{Cap}", "\\begin{tabular}{lr}", "1 & 2 \\\\", "\\begin{equation}\na_1 = 2\n\\end{equation}", "\\[\nx_2\n\\]"]) assert.ok(out.includes(want), want + "\n---\n" + out);
+});
+t("figure paths and \\input files are found for the compile", () => {
+  assert.deepStrictEqual(C.latexAssets("\\includegraphics[width=1cm]{figures/a.pdf} \\input{tables/t.tex}"), ["figures/a.pdf", "tables/t.tex"]);
+});
 console.log(`${n - fail}/${n} tests passed`); process.exit(fail ? 1 : 0);

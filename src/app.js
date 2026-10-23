@@ -127,7 +127,8 @@ async function renderGate() {
     <button class="go" id="newproj">New project</button><button class="go secondary" id="pick">Open a project folder</button>
     <p id="gateerr" class="err" hidden></p>
     ${list.length ? `<label class="small">Recent</label><ul class="recent">${list.map((r, i) => `<li><button data-i="${i}"><span>${esc(r.name)}</span><small>${esc(fmtDay(r.at))}</small></button></li>`).join("")}</ul>` : ""}
-    ${fsOK() ? "" : `<p class="err">This browser can't open folders. Use Chrome or Edge on a computer.</p>`}`;
+    ${fsOK() ? "" : `<p class="err">This browser can't open folders. Use Chrome or Edge on a computer.</p>`}
+    <p class="srcnote">Paperboard is free software (AGPL-3.0). <a href="https://github.com/JesseTNRoberts/Paperboard" target="_blank" rel="noopener">Source code</a>.</p>`;
   $("newproj").onclick = newProject;
   $("pick").onclick = async () => {
     if (!fsOK()) return gateErr("This browser can't open folders. Use Chrome or Edge.");
@@ -1005,7 +1006,7 @@ function closePanel() {
   if (k) writeOpen(null);
 }
 function setPanelMode(mode) {   // null for ordinary panels, or an editor size
-  panel.classList.remove("editor", "half", "full");
+  panel.classList.remove("editor", "half", "full", "pdfp");
   if (mode) { panel.classList.add("editor"); if (mode !== "popup") panel.classList.add(mode); }
   panel.style.top = mode === "full" ? "0px" : (HDR_TOP + HH + (mode === "half" ? 0 : 12)) + "px";
 }
@@ -1155,7 +1156,8 @@ function showSettings() {
   ${meta.tags.map(t => `<div class="rowedit" data-tag="${esc(t.id)}"><input type="color" class="tc" value="${esc(safeColor(t.color))}" aria-label="Tag colour"><input type="text" class="tn" value="${esc(t.name)}" aria-label="Tag name"><button class="mini del" aria-label="Remove tag">✕</button></div>`).join("")}
   <div class="btnrow"><button id="addtag">Add tag</button></div>
   <h3>Backups</h3><p class="help">A copy of the board, beats and notes goes into Backups/ once a day. The board is also saved there before you remove a section, stream or tag, and the version you don't keep in a conflict is saved in Backups/Conflicts.</p>
-  <div class="btnrow"><button id="backnow">Back up now</button></div>`;
+  <div class="btnrow"><button id="backnow">Back up now</button></div>
+  <p class="srcnote">Paperboard is free software under the GNU AGPL-3.0, including the in-browser TeX Live (texlyre-busytex). <a href="https://github.com/JesseTNRoberts/Paperboard" target="_blank" rel="noopener">Source code</a>.</p>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   const refresh = () => { refreshBoard(); saveMetaSoon(); };
   const arm = (d, fn) => d.onclick = async () => {

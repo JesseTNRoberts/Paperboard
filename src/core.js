@@ -260,5 +260,122 @@ function titleOfFile(name) {
   return { title: del ? t.replace(/^TO DELETE\s*-?\s*/i, "") : t, deleted: del };
 }
 
+/* ---------- Markdown + LaTeX → LaTeX ----------
+   Beats are Markdown for prose (bold, italics, lists, quotes, links, images, [@key] citations), and anything that is
+   already LaTeX passes through untouched: math ($…$, $$…$$, \[…\], \(…\)), commands with their arguments (\ref{…},
+   \cite{…}, \SI{…}{…}), and whole environments (\begin{equation}…\end{equation}). */
+const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
+const TEX_SPECIAL = { "&": "\\&", "%": "\\%", "#": "\\#", "_": "\\_", "{": "\\{", "}": "\\}", "^": "\\^{}", "$": "\\$", "\\": "\\textbackslash{}" };
+const texEscape = s => String(s ?? "").replace(/[&%#_{}^$\\]/g, c => TEX_SPECIAL[c]);
+const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
+function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
+  const items = inner.split(";").map(x => x.trim()).filter(Boolean).map(x => { const m = x.match(/^(.*?)-?@([\w:.\-\/+]+)(.*)$/); return m ? { pre: m[1].trim(), key: m[2], post: m[3].replace(/^\s*,\s*/, "").trim() } : null; });
+  if (!items.length || items.some(i => !i)) return null;
+  if (items.every(i => REF_PREFIX.test(i.key))) return items.map(i => `\\ref{${i.key}}`).join(", ");
+  const keys = items.map(i => i.key).join(","), pre = items[0].pre, post = items[items.length - 1].post;
+  return pre ? `\\citep[${pre}][${post}]{${keys}}` : post ? `\\citep[${post}]{${keys}}` : `\\citep{${keys}}`;
+}
+function mdInline(src) {
+  const keep = [], hold = t => "\u0000" + (keep.push(t) - 1) + "\u0000";
+  let s = String(src ?? "");
+  // 1. code, math and LaTeX commands are kept as they are
+  s = s.replace(/`([^`]+)`/g, (m, c) => hold(`\\texttt{${texEscape(c)}}`));
+  s = s.replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$(?=\S)(?:[^$\\\n]|\\.)+?(?<=\S)\$/g, m => hold(m));
+  let out = "", i = 0;
+  while (i < s.length) {
+    if (s[i] !== "\\") { out += s[i++]; continue; }
+    let j = i + 1;
+    if (/[A-Za-z@]/.test(s[j] || "")) {
+      while (j < s.length && /[A-Za-z@]/.test(s[j])) j++;
+      if (s[j] === "*") j++;
+      for (;;) {   // its [optional] and {required} arguments, braces balanced
+        if (s[j] === "[") { const k = s.indexOf("]", j); if (k < 0) break; j = k + 1; continue; }
+        if (s[j] === "{") { let d = 0, k = j; for (; k < s.length; k++) { if (s[k] === "\\") { k++; continue; } if (s[k] === "{") d++; else if (s[k] === "}" && --d === 0) break; } if (k >= s.length) break; j = k + 1; continue; }
+        break;
+      }
+      out += hold(s.slice(i, j)); i = j;
+    } else if (j < s.length && !/\s/.test(s[j])) { out += hold(s.slice(i, j + 1)); i = j + 1; }   // \% \& \\ \, …
+    else { out += s[i++]; }
+  }
+  s = out;
+  // 2. citations and cross-references: [@a; @b], [see @a, p. 3], @a in running text, @fig:label
+  s = s.replace(/\[([^\[\]]*@[\w:.\-\/+][^\[\]]*)\]/g, (m, inner) => { const c = citeCmd(inner); return c ? hold(c) : m; });
+  s = s.replace(/(^|[\s(])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
+  // 3. links, emphasis, quotes
+  s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? m : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
+  s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "\uE000$1\uE001").replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, "$1\uE000$2\uE001");
+  s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
+  s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
+  // 4. escape what's left, then put the kept pieces back
+  s = texEscape(s).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
+  return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
+}
+function mdTableToLatex(lines) {
+  const cells = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const head = cells(lines[0]), align = cells(lines[1]).map(a => /^:-+:$/.test(a) ? "c" : /-+:$/.test(a) ? "r" : "l");
+  const rows = lines.slice(2).map(cells);
+  return `\\begin{tabular}{${align.join("")}}\n\\toprule\n${head.map(mdInline).join(" & ")} \\\\\n\\midrule\n${rows.map(r => r.map(mdInline).join(" & ") + " \\\\").join("\n")}\n\\bottomrule\n\\end{tabular}`;
+}
+function imagePath(p) { return String(p || "").trim().replace(/^<|>$/g, "").replace(/^\.\//, "").replace(/^(\.\.\/)+/, ""); }
+function mdToLatex(md, opts = {}) {
+  const lines = String(md ?? "").replace(/\r/g, "").split("\n"), out = [];
+  let i = 0, para = [];
+  const flush = () => { if (para.length) { out.push(mdInline(para.join("\n"))); para = []; } };
+  const figure = (alt, path) => `\\begin{figure}[${opts.placement || "t"}]\n  \\centering\n  \\includegraphics[width=\\linewidth]{${imagePath(path)}}\n${alt ? `  \\caption{${mdInline(alt)}}\n` : ""}\\end{figure}`;
+  while (i < lines.length) {
+    const l = lines[i], t = l.trim();
+    if (!t) { flush(); i++; continue; }
+    let m;
+    if ((m = t.match(/^\\begin\{([^}]+)\}/))) {   // a LaTeX environment: as is, up to its matching \end
+      flush(); const env = m[1]; let depth = 0, j = i; const buf = [];
+      for (; j < lines.length; j++) { buf.push(lines[j]); depth += (lines[j].split(`\\begin{${env}}`).length - 1) - (lines[j].split(`\\end{${env}}`).length - 1); if (depth <= 0) break; }
+      out.push(buf.join("\n")); i = j + 1; continue;
+    }
+    if (/^(\$\$|\\\[)/.test(t)) {   // display math
+      flush(); const close = t.startsWith("$$") ? "$$" : "\\]"; const buf = [l]; let j = i;
+      if (!(t.length > 2 && t.endsWith(close))) { for (j = i + 1; j < lines.length; j++) { buf.push(lines[j]); if (lines[j].trim().endsWith(close)) break; } }
+      out.push(buf.join("\n").replace(/^\s*\$\$/, "\\[").replace(/\$\$\s*$/, "\\]")); i = j + 1; continue;
+    }
+    if (/^```/.test(t)) { flush(); const buf = []; let j = i + 1; for (; j < lines.length && !/^```/.test(lines[j].trim()); j++) buf.push(lines[j]); out.push(`\\begin{verbatim}\n${buf.join("\n")}\n\\end{verbatim}`); i = j + 1; continue; }
+    if ((m = t.match(/^(#{1,6})\s+(.*)$/))) { flush(); const cmd = ["subsection", "subsection", "subsubsection", "paragraph", "paragraph", "paragraph"][m[1].length - 1]; out.push(`\\${cmd}{${mdInline(m[2].replace(/\s+#+$/, ""))}}`); i++; continue; }
+    if ((m = t.match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/))) { flush(); out.push(figure(m[1], m[2])); i++; continue; }
+    if (/^\|.*\|$/.test(t) && /^\|?\s*:?-{2,}/.test((lines[i + 1] || "").trim())) {
+      flush(); const buf = []; let j = i; for (; j < lines.length && /^\|.*\|$/.test(lines[j].trim()); j++) buf.push(lines[j]);
+      out.push(`\\begin{center}\n${mdTableToLatex(buf)}\n\\end{center}`); i = j; continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { flush(); out.push("\\par\\noindent\\rule{\\linewidth}{0.4pt}\\par"); i++; continue; }
+    if (/^>\s?/.test(t)) { flush(); const buf = []; let j = i; for (; j < lines.length && /^\s*>/.test(lines[j]); j++) buf.push(lines[j].replace(/^\s*>\s?/, "")); out.push(`\\begin{quote}\n${mdToLatex(buf.join("\n"), opts)}\n\\end{quote}`); i = j; continue; }
+    if (/^([-*+]|\d+[.)])\s+/.test(t)) {   // lists, with one level of nesting by indentation
+      flush();
+      const list = (start, indent) => {
+        const ordered = /^\d/.test(lines[start].trim()), env = ordered ? "enumerate" : "itemize", items = []; let j = start;
+        while (j < lines.length) {
+          const ln = lines[j], ind = ln.match(/^\s*/)[0].length, tt = ln.trim();
+          if (!tt) { const nx = lines[j + 1] || ""; if (/^\s*([-*+]|\d+[.)])\s+/.test(nx) && nx.match(/^\s*/)[0].length >= indent && /^\d/.test(nx.trim()) === ordered) { j++; continue; } break; }
+          if (ind > indent && /^([-*+]|\d+[.)])\s+/.test(tt)) { const r = list(j, ind); items[items.length - 1] += "\n" + r.tex; j = r.end; continue; }
+          if (ind < indent) break;
+          if (ind === indent && /^([-*+]|\d+[.)])\s+/.test(tt) && /^\d/.test(tt) !== ordered) break;   // a different kind of list starts
+          const mm = tt.match(/^([-*+]|\d+[.)])\s+(.*)$/);
+          if (mm) items.push(mdInline(mm[2])); else if (items.length) items[items.length - 1] += " " + mdInline(tt); else break;
+          j++;
+        }
+        return { tex: `\\begin{${env}}\n${items.map(x => "  \\item " + x).join("\n")}\n\\end{${env}}`, end: j };
+      };
+      const r = list(i, lines[i].match(/^\s*/)[0].length); out.push(r.tex); i = r.end; continue;
+    }
+    para.push(l); i++;
+  }
+  flush();
+  return out.join("\n\n");
+}
+/* where Markdown would put the paper's figures: image paths, for copying them into the compile */
+function latexAssets(tex) {
+  const out = new Set();
+  for (const m of tex.matchAll(/\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g)) out.add(m[1].trim());
+  for (const m of tex.matchAll(/\\(?:input|include)\s*\{([^}]+)\}/g)) out.add(m[1].trim());
+  return [...out];
+}
+
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
-  merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS };
+  merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
+  mdToLatex, mdInline, texEscape, slugify, latexAssets };
