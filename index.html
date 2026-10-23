@@ -2829,7 +2829,8 @@ function showOlHow() {
       <span class="help">Without Terminal: double-click the script, and when macOS refuses, open System Settings &gt; Privacy &amp; Security, scroll down and click Open Anyway.</span></li>
     <li>In Overleaf, open the project and copy its Git link (Menu &gt; Integrations &gt; Git), and create a Git token (Account Settings &gt; Git integration).</li>
     <li>Double-click <b>${SYNC_SCRIPT}</b>. Paste the token and then the link when asked. The token goes into your Mac's Keychain.</li>
-    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>`;
+    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>
+    <p class="help">If double-clicking opens it in an editor instead, or still won't run it: in Terminal, in the project folder, run <code>bash "${SYNC_SCRIPT}"</code>. That always works. To make double-click open it in Terminal, select the file, press ⌘I, set Open with to Terminal, and click Change All.</p>`;
   $("x-olcopy").onclick = async () => { try { await navigator.clipboard.writeText(cmd); $("x-olcopy").textContent = "Copied"; } catch (e) { const r = document.createRange(); r.selectNodeContents($("x-olcmd")); getSelection().removeAllRanges(); getSelection().addRange(r); } };
   renderOverleafLater();
 }
