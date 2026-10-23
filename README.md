@@ -17,9 +17,9 @@ Paperboard builds the paper's LaTeX from the beats in document order, and Overle
 
 ## Syncing with Overleaf (premium, Git integration)
 
-A folder inside the project (`export/overleaf` by default) is your git clone of the Overleaf project. Paperboard keeps the paper written into it: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. You run git; the **Overleaf** panel gives you the commands, filled in.
+A folder inside the project (`export/overleaf` by default) holds the paper as LaTeX: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. Paperboard starts writing it when you press **Start** in the **Overleaf** panel. You push that folder to Overleaf with git; the panel gives you the commands, filled in.
 
-- **Once.** Paste the project's Git link into the panel, then run the clone command it shows. When git asks, the username is `git` and the password is an Overleaf Git token; macOS keeps it in the Keychain.
+- **Once.** Paste the Overleaf project's Git link into the panel and run the first-push command it shows, from the project folder. It makes the folder a git repository and pushes the paper; this works for an empty Overleaf project, and if Overleaf already made a starter `main.tex`, Paperboard's version replaces it. When git asks, the username is `git` and the password is an Overleaf Git token; macOS keeps it in the Keychain.
 - **After a round of edits.** Run the sync command from the panel:
   `cd "export/overleaf" && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null`
   It sends Paperboard's version and brings in Overleaf's. Paperboard then merges Overleaf's edits back into the beats it can match by marker, preamble edits into `export/template/main.tex`, and new references into `References/references.bib`. Edits to figure or table floats are kept in that beat's Notes.

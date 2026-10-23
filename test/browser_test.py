@@ -371,21 +371,22 @@ with sync_playwright() as p:
     check("Restore all brings every marked beat back", not page.is_visible("#restore") and "TO DELETE" not in " ".join(ev("() => T.ls('sample/Beats')")), ev("() => T.ls('sample/Beats')"))
     page.keyboard.press("Escape")
     # ---------- 13. Overleaf: a folder in the project is your git clone; Paperboard writes the paper there and reads edits back ----------
-    page.click("#olbtn"); page.wait_for_selector("#x-ol")
-    page.wait_for_function("() => /Not linked/.test(document.getElementById('x-ol').textContent)")
+    page.click("#olbtn"); page.wait_for_selector("#x-olstart")
+    check("before Start, nothing is written for Overleaf", "overleaf" not in " ".join(ev("() => T.ls('sample/export')")))
+    page.click("#x-olstart"); page.wait_for_selector("#x-olurl")
     page.fill("#x-olurl", "git clone https://git@git.overleaf.com/0123456789abcdef01234567")
-    check("the panel fills in the clone command from the Git link", page.inner_text("#x-olclone") == 'git clone https://git.overleaf.com/0123456789abcdef01234567 "export/overleaf"', page.inner_text("#x-olclone"))
+    first_cmd = page.inner_text("#x-olfirst")
+    check("the panel fills in the first-push command from the Git link", 'git remote add origin "https://git.overleaf.com/0123456789abcdef01234567"' in first_cmd and first_cmd.startswith('cd "export/overleaf" && git init'), first_cmd)
     check("no script is written into the project", "Sync with Overleaf.command" not in ev("() => T.ls('sample')"))
-    page.keyboard.press("Escape")
-    # what git clone leaves: a checkout of a fresh Overleaf project
-    ev("""async () => { await T.write('sample/export/overleaf/.git/HEAD', 'ref: refs/heads/master\\n'); await T.write('sample/export/overleaf/main.tex', '\\\\documentclass{article}\\n\\\\begin{document}\\nOverleaf starter\\n\\\\end{document}\\n'); }""")
     def wait_file(path, cond_js, ms=15000):
         for _ in range(ms // 300):
             if ev("async () => { try { const t = await T.read('" + path + "'); return !!(" + cond_js + "); } catch (e) { return false; } }"): return True
             page.wait_for_timeout(300)
         return False
     ok = wait_file("sample/export/overleaf/main.tex", "t.includes('PAPERBOARD BODY START')")
-    check("linking: the paper replaces Overleaf's starter file, which is kept in Backups", ok and any("overleaf-original-main.tex" in x for x in ev("() => T.ls('sample/Backups/Overleaf')")))
+    check("after Start, the paper is written into the folder, before any git", ok)
+    page.keyboard.press("Escape")
+    ev("async () => T.write('sample/export/overleaf/.git/HEAD', 'ref: refs/heads/master\\n')")   # what the first-push command leaves
     ol = ev("() => T.ls('sample/export/overleaf')")
     check("linking: template files, references.bib and figures go into export/overleaf", all(x in ol for x in ["references.bib", "figures/"]) and "calibration_error.pdf" in ev("() => T.ls('sample/export/overleaf/figures')"), ol)
     # a co-author edits in Overleaf; the script pulls it in (clean merge)
