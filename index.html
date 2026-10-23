@@ -772,6 +772,20 @@ function splitPaperTex(tex) {   // {pre, post, blocks: Map(key -> latex), sectio
   close();
   return { pre, post, blocks, sections, order };
 }
+/* a file git left with conflict markers (merge.conflictStyle=diff3): the three versions it came from */
+const hasGitConflict = t => /^<{7}( |$)/m.test(t || "") && /^>{7}( |$)/m.test(t || "");
+function gitConflictSides(text) {
+  const ours = [], base = [], theirs = []; let state = 0, sawBase = false, sawAny = false;   // 0 outside, 1 ours, 2 base, 3 theirs
+  for (const line of String(text).split("\n")) {
+    if (state === 0 && /^<{7}( |$)/.test(line)) { state = 1; sawAny = true; continue; }
+    if (state === 1 && /^\|{7}( |$)/.test(line)) { state = 2; sawBase = true; continue; }
+    if ((state === 1 || state === 2) && /^={7}$/.test(line)) { state = 3; continue; }
+    if (state === 3 && /^>{7}( |$)/.test(line)) { state = 0; continue; }
+    if (state === 0) { ours.push(line); base.push(line); theirs.push(line); }
+    else if (state === 1) ours.push(line); else if (state === 2) base.push(line); else theirs.push(line);
+  }
+  return { conflict: sawAny, hasBase: sawBase, ours: ours.join("\n"), base: base.join("\n"), theirs: theirs.join("\n") };
+}
 /* LaTeX back to Markdown, only where it converts forward again to exactly the same LaTeX; otherwise the LaTeX itself (beats accept it) */
 function latexToMd(tex) {
   const t = String(tex ?? "");
@@ -791,7 +805,7 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };
+  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
 </script>
 <script>
 "use strict";
@@ -2666,18 +2680,22 @@ function showOverleafPanel() {
   renderOverleaf();
 }
 $("olbtn").onclick = () => { if (meta) showOverleafPanel(); };
-const SYNC_SCRIPT_TEXT = "#!/bin/bash\n# Sync with Overleaf (written by Paperboard). Double-click to send the paper to Overleaf and bring Overleaf's edits back.\n#\n# export/overleaf/ is a git copy of your Overleaf project. Paperboard keeps the paper written into it, and this script:\n#   1. commits what Paperboard wrote,\n#   2. pulls Overleaf's changes and merges them,\n#   3. pushes the result to Overleaf.\n# Paperboard (open in Chrome) then merges Overleaf's edits back into the beats.\n# If both sides changed the same lines, this script sets the three versions aside in export/overleaf-merge/ and takes\n# Overleaf's version; Paperboard merges them beat by beat and asks you where they clash; then double-click again.\n#\n# The Overleaf token is kept in your macOS Keychain (service \"Paperboard Overleaf\"), never in a file.\n\ncd \"$(dirname \"$0\")\" || exit 1\nREPO=\"export/overleaf\"\nSERVICE=\"Paperboard Overleaf\"\nTRIPLES=\"main.tex references.bib\"\nsay() { printf '%s\\n' \"$*\"; }\nfinish() { say \"\"; say \"$1\"; say \"\"; [ -t 0 ] && [ -z \"$PAPERBOARD_NO_PAUSE\" ] && read -n 1 -s -r -p \"Press any key to close.\"; echo; exit \"${2:-0}\"; }\n\ncommand -v git >/dev/null 2>&1 || finish \"git isn't installed. Run 'xcode-select --install' in Terminal, then try again.\" 1\n\ntoken_get() {\n  if [ -n \"$PAPERBOARD_OVERLEAF_TOKEN\" ]; then printf %s \"$PAPERBOARD_OVERLEAF_TOKEN\"; return; fi\n  security find-generic-password -a \"$USER\" -s \"$SERVICE\" -w 2>/dev/null\n}\nTOKEN=\"$(token_get)\"\nif [ -z \"$TOKEN\" ]; then\n  say \"Paste your Overleaf Git authentication token (Overleaf: Account Settings > Git integration),\"\n  say \"then press Return. It goes into your macOS Keychain; you won't be asked again.\"\n  read -r -s TOKEN; echo\n  [ -n \"$TOKEN\" ] || finish \"No token given; nothing changed.\" 1\n  security add-generic-password -U -a \"$USER\" -s \"$SERVICE\" -l \"Paperboard Overleaf token\" -w \"$TOKEN\" >/dev/null || finish \"Couldn't save the token to the Keychain.\" 1\nfi\n\nASKPASS=\"$(mktemp -t paperboard-askpass.XXXXXX)\" || exit 1\ntrap 'rm -f \"$ASKPASS\"' EXIT\nprintf '#!/bin/sh\\ncase \"$1\" in *sername*) echo git ;; *) printf \"%%s\\\\n\" \"$PAPERBOARD_TOKEN\" ;; esac\\n' > \"$ASKPASS\"\nchmod 700 \"$ASKPASS\"\nexport GIT_ASKPASS=\"$ASKPASS\" PAPERBOARD_TOKEN=\"$TOKEN\" GIT_TERMINAL_PROMPT=0\ngit_() { git -c credential.helper= -c core.quotepath=off \"$@\"; }\n\nif [ ! -d \"$REPO/.git\" ]; then\n  say \"Connecting this project to Overleaf.\"\n  say \"Paste the project's Git link (Overleaf: Menu > Integrations > Git), e.g. https://git.overleaf.com/0123456789abcdef01234567\"\n  read -r URL\n  URL=\"$(printf %s \"$URL\" | sed -E 's#^ *git clone +##; s#^(https?://)[^@/]*@#\\1#; s# *$##')\"\n  [ -n \"$URL\" ] || finish \"No link given; nothing changed.\" 1\n  mkdir -p export\n  if [ -e \"$REPO\" ] && [ -n \"$(ls -A \"$REPO\" 2>/dev/null)\" ]; then\n    TMP=\"$REPO.clone-$$\"\n    git_ clone -q \"$URL\" \"$TMP\" || finish \"Couldn't reach that Overleaf project. Check the link and the token (to re-enter the token, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n    mv \"$TMP/.git\" \"$REPO/.git\" && rm -rf \"$TMP\"\n  else\n    git_ clone -q \"$URL\" \"$REPO\" || finish \"Couldn't reach that Overleaf project. Check the link and the token (to re-enter the token, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n  fi\n  git_ -C \"$REPO\" config user.name \"${PAPERBOARD_GIT_NAME:-Paperboard}\"\n  git_ -C \"$REPO\" config user.email \"${PAPERBOARD_GIT_EMAIL:-paperboard@localhost}\"\n  finish \"Connected. Paperboard (open in Chrome) now puts the paper into export/overleaf. Double-click this again to send it to Overleaf.\"\nfi\n\ncd \"$REPO\" || exit 1\nBR=\"$(git_ rev-parse --abbrev-ref HEAD)\"\ngit_ add -A\ngit_ diff --cached --quiet || git_ commit -q -m \"Paperboard $(date '+%Y-%m-%d %H:%M')\"\ngit_ fetch -q origin || finish \"Couldn't reach Overleaf. Check your connection (and the token: to re-enter it, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n\nif ! git_ merge -q --no-edit \"origin/$BR\" >/dev/null 2>&1; then\n  STAMP=\"$(date '+%Y-%m-%d-%H%M%S')\"\n  OUT=\"../overleaf-merge/$STAMP\"\n  mkdir -p \"$OUT\"\n  BASE=\"$(git_ merge-base HEAD \"origin/$BR\")\"\n  for f in $TRIPLES; do\n    git_ show \"$BASE:$f\" > \"$OUT/base-$f\" 2>/dev/null || rm -f \"$OUT/base-$f\"\n    git_ show \"HEAD:$f\" > \"$OUT/ours-$f\" 2>/dev/null || rm -f \"$OUT/ours-$f\"\n    git_ show \"origin/$BR:$f\" > \"$OUT/theirs-$f\" 2>/dev/null || rm -f \"$OUT/theirs-$f\"\n  done\n  git_ merge --abort 2>/dev/null\n  git_ reset -q --hard \"origin/$BR\"\n  finish \"Overleaf and Paperboard both changed the same lines. Paperboard is merging them beat by beat and will ask you where they clash. Then double-click this again to send the result.\"\nfi\n\nAHEAD=\"$(git_ rev-list --count \"origin/$BR..HEAD\")\"\nif [ \"$AHEAD\" != \"0\" ]; then git_ push -q origin \"HEAD:$BR\" || finish \"Overleaf refused the push (someone may have just edited). Double-click again.\" 1; fi\nfinish \"Synced with Overleaf. Sent: $([ \"$AHEAD\" != \"0\" ] && echo yes || echo nothing new). Paperboard is bringing Overleaf's edits into the beats.\"\n";
 
-/* ================= Overleaf: export/overleaf is a git copy of the Overleaf project =================
+/* ================= Overleaf: a folder in the project (export/overleaf by default) is your git clone of the Overleaf project =================
    Paperboard keeps the paper written into it (main.tex with the % beat: markers, the template's files, references.bib,
-   the figures). "Sync with Overleaf.command", double-clicked in the project folder, commits that, pulls Overleaf's
-   changes, merges them and pushes. When the pull brings edits, Paperboard merges each beat's edits back into the beat,
-   preamble edits into export/template/main.tex and new references into References/references.bib.
+   the figures). You sync it with git, using the commands the Overleaf panel gives you. When a pull brings Overleaf's
+   edits, Paperboard merges each beat's edits back into the beat, preamble edits into export/template/main.tex and new
+   references into References/references.bib. If git stops with a conflict, Paperboard reads the three versions from
+   the conflict markers (diff3 style), merges them beat by beat, writes the resolved files, and you run the command again.
    export/.overleaf-sent/ holds what Paperboard last wrote, so it can tell Overleaf's edits from its own. */
-const OL_DIR = "export/overleaf", OL_SENT = "export/.overleaf-sent", OL_MERGE = "export/overleaf-merge", SYNC_SCRIPT = "Sync with Overleaf.command";
-const olOpts = () => { meta.overleaf ||= {}; meta.overleaf.done ||= []; return meta.overleaf; };
-let olLast = { stamp: null, merges: "" }, olInfo = { linked: false, imported: null, notes: [] };
-async function olRepo() { const d = await handleAt(OL_DIR, "dir"); if (!d) return null; try { await d.getDirectoryHandle(".git"); return d; } catch (e) { return null; } }
+const OL_DEFAULT = "export/overleaf", OL_SENT = "export/.overleaf-sent";
+const olDir = () => relPath(meta?.overleaf?.dir) || OL_DEFAULT;   // the folder in the project that is your git clone of the Overleaf project
+const shq = s => `"${String(s).replace(/(["\\$`])/g, "\\$1")}"`;
+const olSyncCmd = () => `cd ${shq(olDir())} && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null`;
+const olOpts = () => { meta.overleaf ||= {}; return meta.overleaf; };
+let olLast = { stamp: null }, olInfo = { linked: false, imported: null, notes: [], waiting: false, handled: null, noBase: false };
+const olClashes = () => Object.keys(conflicts).filter(k => conflicts[k].who === "Overleaf" && beatByKey(k));
+async function olRepo() { const d = await handleAt(olDir(), "dir"); if (!d) return null; try { await d.getDirectoryHandle(".git"); return d; } catch (e) { return null; } }
 async function readAt(path) { const f = await fileAt(path); return f ? f.text() : null; }
 async function writeAt(path, content) {   // creates folders as needed; writes only if the content differs
   const old = await fileAt(path);
@@ -2688,29 +2706,30 @@ async function writeAt(path, content) {   // creates folders as needed; writes o
   const h = await handleAt(path, "file", true); if (!h) throw new Error("Can't write " + path);
   const w = await h.createWritable(); await w.write(content); await w.close(); return true;
 }
-async function olStamp() { const f = await fileAt(OL_DIR + "/main.tex"); return f ? f.lastModified + ":" + f.size : null; }
+async function olStamp() { const f = await fileAt(olDir() + "/main.tex"); return f ? f.lastModified + ":" + f.size : null; }
 
-/* ---------- Paperboard -> export/overleaf ---------- */
+/* ---------- Paperboard -> the clone ---------- */
 let olTimer = null;
 function olExportSoon() { clearTimeout(olTimer); olTimer = setTimeout(() => { if (root && meta) enqueue("overleaf", olSync).catch(e => console.warn("Overleaf", e)); }, 3000); }
 async function olExport() {
   if (!(await olRepo())) return;
   const paper = await assemblePaper();
-  const cur = await readAt(OL_DIR + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
+  const cur = await readAt(olDir() + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
+  if (cur != null && hasGitConflict(cur) && (olInfo.noBase || olClashes().length)) return;   // wait: git's conflict isn't merged yet, or you're still choosing
   if (cur != null && sent != null && !splitPaperTex(cur)) {   // the markers were taken out in Overleaf: don't overwrite their file
-    olInfo.notes = ["Overleaf's main.tex no longer has Paperboard's markers, so Paperboard isn't overwriting it. Restore the markers in Overleaf (its history has them), or move export/overleaf/main.tex aside to start fresh."];
+    olInfo.notes = [`Overleaf's main.tex no longer has Paperboard's markers, so Paperboard isn't overwriting it. Restore the markers in Overleaf (its history has them), or move ${olDir()}/main.tex aside to start fresh.`];
     renderOverleaf(); return;
   }
-  await writeAt(OL_DIR + "/main.tex", paper.main); await writeAt(OL_SENT + "/main.tex", paper.main);
+  await writeAt(olDir() + "/main.tex", paper.main); await writeAt(OL_SENT + "/main.tex", paper.main);
   for (const f of paper.files) {
     if (f.path === "README.md") continue;
-    await writeAt(OL_DIR + "/" + f.path, f.content);
+    await writeAt(olDir() + "/" + f.path, f.content);
     if (f.path === "references.bib") await writeAt(OL_SENT + "/references.bib", f.content);
   }
   olLast.stamp = await olStamp();
 }
 
-/* ---------- export/overleaf -> the beats ---------- */
+/* ---------- the clone -> the beats ---------- */
 function bodyFromLatex(p, b, tex) {
   if (p.type !== "Paragraph") { const head = `\\paragraph{${mdInline(b.title)}.}`; if (tex.startsWith(head)) tex = tex.slice(head.length).replace(/^\n/, ""); }
   return latexToMd(tex);
@@ -2721,7 +2740,7 @@ function applyOverleaf(baseTex, theirsTex, notes) {   // merge Overleaf's edits 
   let n = 0;
   for (const [key, tBlock] of T.blocks) {
     const bBlock = B.blocks.get(key); if (bBlock === undefined || bBlock === tBlock) continue;
-    const b = beatByKey(key); if (!b) { notes.push(`Overleaf edited text for a beat that no longer exists (${key}); it's in export/overleaf/main.tex.`); continue; }
+    const b = beatByKey(key); if (!b) { notes.push(`Overleaf edited text for a beat that no longer exists (${key}); it's in ${olDir()}/main.tex.`); continue; }
     if (conflicts[key]) { notes.push(`“${b.title}” already needs your choice; Overleaf's edit to it waits until the next sync.`); continue; }
     const p = beatParts(b.text);
     if (p.type === "Figure" || p.type === "Table") {   // floats aren't rebuilt from LaTeX: keep Overleaf's version in the beat's notes
@@ -2768,26 +2787,32 @@ async function backupFile(name, text) { const d = await (await subdir(BACKUP_DIR
 async function olImport() {
   if (!(await olRepo())) return;
   const notes = [], o = olOpts(); let n = 0, saw = false;
-  // 1. a clash the sync script set aside: merge with the real common version
-  for (const dir of await listDirs(OL_MERGE)) {
-    if (o.done.includes(dir)) continue;
-    const at = n => readAt(`${OL_MERGE}/${dir}/${n}`);
-    const base = await at("base-main.tex"), theirs = await at("theirs-main.tex");
-    if (base && theirs) { n += applyOverleaf(base, theirs, notes); await applyTemplateEdits(base, theirs, notes); }
-    await applyBibEdits(await at("base-references.bib"), await at("theirs-references.bib"), notes);
-    o.done.push(dir); saw = true;
-    if (theirs) await writeAt(OL_SENT + "/main.tex", theirs);   // Overleaf's version is now what export/overleaf holds
-    const tb = await at("theirs-references.bib"); if (tb) await writeAt(OL_SENT + "/references.bib", tb);
+  // 1. git stopped with a conflict: the markers hold the common version, Paperboard's and Overleaf's
+  let cur = await readAt(olDir() + "/main.tex");
+  olInfo.waiting = false; olInfo.noBase = false;
+  if (cur != null && hasGitConflict(cur) && cur === olInfo.handled) { olInfo.waiting = true; cur = gitConflictSides(cur).theirs; }   // already merged into the beats
+  else if (cur != null && hasGitConflict(cur)) {
+    const g = gitConflictSides(cur);
+    olInfo.handled = cur;
+    if (!g.hasBase) { olInfo.noBase = true; notes.push(`git stopped with a conflict but without the common version. In the project folder run: cd ${shq(olDir())} && git merge --abort; cd - >/dev/null — then use the sync command from this panel (it asks git for that version).`); olInfo.notes = notes; renderOverleaf(); return; }
+    n += applyOverleaf(g.base, g.theirs, notes); await applyTemplateEdits(g.base, g.theirs, notes);
+    await writeAt(OL_SENT + "/main.tex", g.theirs); cur = g.theirs; saw = true; olInfo.waiting = true;
+    notes.push("Overleaf and Paperboard both changed main.tex. Paperboard merged it beat by beat; run the sync command again to send the result.");
+  }
+  const bibNow = await readAt(olDir() + "/references.bib");
+  if (bibNow != null && hasGitConflict(bibNow)) {
+    const g = gitConflictSides(bibNow);
+    if (g.hasBase) { await applyBibEdits(g.base, g.theirs, notes); await writeAt(OL_SENT + "/references.bib", g.theirs); saw = true; olInfo.waiting = true; }
   }
   // 2. edits that came in with a clean pull
-  const cur = await readAt(OL_DIR + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
+  const sent = await readAt(OL_SENT + "/main.tex");
   if (cur != null && !splitPaperTex(cur)) {   // a fresh Overleaf project: keep its main.tex, then put the paper in
     if (!sent) { await backupFile("overleaf-original-main.tex", cur); notes.push("Saved Overleaf's original main.tex in Backups/Overleaf and put the paper in its place."); }
   } else if (cur != null && sent != null && cur !== sent) {
     n += applyOverleaf(sent, cur, notes); await applyTemplateEdits(sent, cur, notes); saw = true;
     await writeAt(OL_SENT + "/main.tex", cur);
   }
-  const curBib = await readAt(OL_DIR + "/references.bib"), sentBib = await readAt(OL_SENT + "/references.bib");
+  const curBib = olInfo.waiting ? null : await readAt(olDir() + "/references.bib"), sentBib = await readAt(OL_SENT + "/references.bib");
   if (curBib != null && sentBib != null && curBib !== sentBib) { await applyBibEdits(sentBib, curBib, notes); await writeAt(OL_SENT + "/references.bib", curBib); saw = true; }
   if (saw) {
     saveHl(); saveMetaSoon();
@@ -2797,44 +2822,54 @@ async function olImport() {
   }
 }
 async function olSync() { await olImport(); await olExport(); }
-async function olPoll() {   // the sync script ran: bring the edits in
+async function olPoll() {   // git ran: bring the edits in
   if (!root || !meta) return;
   const repo = await olRepo();
   if (!!repo !== olInfo.linked) { olInfo.linked = !!repo; renderOverleaf(); if (repo) return enqueue("overleaf", olSync); }
   if (!repo) return;
-  const st = await olStamp(), merges = (await listDirs(OL_MERGE)).join("|");
-  if (st !== olLast.stamp || merges !== olLast.merges) { olLast.merges = merges; await enqueue("overleaf", olSync); olLast.stamp = await olStamp(); }
+  const st = await olStamp();
+  if (st !== olLast.stamp) { await enqueue("overleaf", olSync); olLast.stamp = await olStamp(); }
 }
 
-/* ---------- the sync, in the Overleaf panel ---------- */
+/* ---------- the Overleaf panel: the git commands, filled in ---------- */
+const cleanGitUrl = u => String(u || "").trim().replace(/^git clone\s+/, "").replace(/^(https?:\/\/)[^@\/]*@/, "$1").split(/\s/)[0];
+const cmdRow = (id, cmd) => `<div class="cmdrow"><code id="${id}">${esc(cmd)}</code><button class="mini" data-copy="${id}">Copy</button></div>`;
+function wireCopy(box) {
+  box.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+    const el = $(b.dataset.copy);
+    try { await navigator.clipboard.writeText(el.textContent); b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1500); }
+    catch (e) { const r = document.createRange(); r.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(r); }
+  });
+}
 async function renderOverleaf() {
   const box = $("x-ol"); if (!box) return;
-  const repo = await olRepo(), script = await fileAt(SYNC_SCRIPT);
+  const repo = await olRepo(), o = olOpts(), cd = `cd "path/to/${root.name}"`;
+  const notes = olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "";
   if (!repo) {
-    box.innerHTML = `<b>Overleaf</b> <span class="help">Not linked.</span> <button class="mini" id="x-olsetup">${script ? "Show how to link" : "Set up sync with Overleaf"}</button><div id="x-olhow" hidden></div>`;
-    $("x-olsetup").onclick = async () => { if (!script) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
-    return;
+    box.innerHTML = `<b>Overleaf</b> <span class="help">Not linked yet. Once, in Terminal:</span>
+      <ol class="olsteps">
+        <li>In Overleaf, copy the project's Git link (Menu &gt; Integrations &gt; Git) and paste it here:
+          <input type="text" id="x-olurl" class="mono" placeholder="https://git.overleaf.com/0123456789abcdef01234567" value="${esc(o.url || "")}" spellcheck="false"></li>
+        <li>Open Terminal, type <code>cd </code> (with a space), drag the <b>${esc(root.name)}</b> folder into the window, and press Return.</li>
+        <li>Choose the folder in the project for your clone of the Overleaf project (it must not exist yet):
+          <input type="text" id="x-oldir" class="mono" value="${esc(olDir())}" spellcheck="false"></li>
+        <li>Paste this and press Return:${cmdRow("x-olclone", `git clone ${o.url ? cleanGitUrl(o.url) : "<the Git link>"} ${shq(olDir())}`)}
+          When git asks, the username is <code>git</code> and the password is an Overleaf Git token (Account Settings &gt; Git integration). macOS keeps it in your Keychain, so you're asked only once.</li>
+      </ol>
+      <p class="help">Paperboard then writes the paper there as main.tex (keeping Overleaf's starter file in Backups/Overleaf). If you already have a clone inside the project, just put its folder above.</p>${notes}`;
+    const url = $("x-olurl"), dir = $("x-oldir");
+    const upd = () => { $("x-olclone").textContent = `git clone ${o.url || "<the Git link>"} ${shq(olDir())}`; };
+    url.oninput = () => { o.url = cleanGitUrl(url.value); saveMetaSoon(); upd(); };
+    dir.onchange = () => { const v = relPath(dir.value); if (v && !v.startsWith("Beats") && v !== "export/template") { o.dir = v; dir.value = v; saveMetaSoon(); upd(); olInfo.linked = false; } else dir.value = olDir(); };
+    wireCopy(box); renderOverleafLater(); return;
   }
-  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked (export/overleaf). To sync, double-click <b>${SYNC_SCRIPT}</b> in the project folder.${olInfo.imported ? ` Last brought edits in ${fmtTime(olInfo.imported)}.` : ""}</span> <button class="mini" id="x-olsetup">Setup steps</button><div id="x-olhow" hidden></div>` +
-    (olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "");
-  $("x-olsetup").onclick = async () => { if (!(await fileAt(SYNC_SCRIPT))) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
+  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked: <code>${esc(olDir())}</code> is your git clone of the Overleaf project, and Paperboard keeps the paper in it as main.tex (with the template's files, references.bib and the figures).${olInfo.imported ? ` Last brought Overleaf's edits in at ${fmtTime(olInfo.imported)}.` : ""}</span>
+    <p class="help" style="margin-top:8px">To sync after a round of edits, in Terminal in the project folder (<code>cd</code>, a space, then drag the folder in), run:</p>
+    ${cmdRow("x-olsync", olSyncCmd())}
+    <p class="help">It sends Paperboard's version, brings in Overleaf's, and Paperboard merges Overleaf's edits back into the beats within a few seconds. If git says there's a conflict, Paperboard merges it beat by beat (asking you where the same lines changed on both sides); then run the same command again.</p>${notes}`;
+  wireCopy(box);
 }
-function showOlHow() {
-  const h = $("x-olhow"); if (!h) return; h.hidden = false;
-  const cmd = `xattr -c "${SYNC_SCRIPT}"; chmod +x "${SYNC_SCRIPT}"`;
-  h.innerHTML = `<ol class="olsteps">
-    <li>Paperboard has put <b>${SYNC_SCRIPT}</b> in the project folder. macOS blocks scripts a browser wrote until you allow it, once:
-      in Terminal, type <code>cd </code> (with a space), drag the project folder into the window and press Return; then paste this and press Return:
-      <div class="cmdrow"><code id="x-olcmd">${esc(cmd)}</code><button class="mini" id="x-olcopy">Copy</button></div>
-      <span class="help">Without Terminal: double-click the script, and when macOS refuses, open System Settings &gt; Privacy &amp; Security, scroll down and click Open Anyway.</span></li>
-    <li>In Overleaf, open the project and copy its Git link (Menu &gt; Integrations &gt; Git), and create a Git token (Account Settings &gt; Git integration).</li>
-    <li>Double-click <b>${SYNC_SCRIPT}</b>. Paste the token and then the link when asked. The token goes into your Mac's Keychain.</li>
-    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>
-    <p class="help">If double-clicking opens it in an editor instead, or still won't run it: in Terminal, in the project folder, run <code>bash "${SYNC_SCRIPT}"</code>. That always works. To make double-click open it in Terminal, select the file, press ⌘I, set Open with to Terminal, and click Change All.</p>`;
-  $("x-olcopy").onclick = async () => { try { await navigator.clipboard.writeText(cmd); $("x-olcopy").textContent = "Copied"; } catch (e) { const r = document.createRange(); r.selectNodeContents($("x-olcmd")); getSelection().removeAllRanges(); getSelection().addRange(r); } };
-  renderOverleafLater();
-}
-function renderOverleafLater() { clearTimeout(renderOverleafLater.t); renderOverleafLater.t = setTimeout(async () => { if (await olRepo()) renderOverleaf(); }, 4000); }
+function renderOverleafLater() { clearTimeout(renderOverleafLater.t); renderOverleafLater.t = setTimeout(async () => { if (await olRepo()) renderOverleaf(); else renderOverleafLater(); }, 4000); }
 </script>
 </body>
 </html>

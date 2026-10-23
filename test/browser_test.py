@@ -370,15 +370,14 @@ with sync_playwright() as p:
     page.click("#restore"); page.click("#r-all"); page.wait_for_timeout(1200)
     check("Restore all brings every marked beat back", not page.is_visible("#restore") and "TO DELETE" not in " ".join(ev("() => T.ls('sample/Beats')")), ev("() => T.ls('sample/Beats')"))
     page.keyboard.press("Escape")
-    # ---------- 13. Overleaf: export/overleaf is the git copy; edits there come back into the beats ----------
+    # ---------- 13. Overleaf: a folder in the project is your git clone; Paperboard writes the paper there and reads edits back ----------
     page.click("#olbtn"); page.wait_for_selector("#x-ol")
     page.wait_for_function("() => /Not linked/.test(document.getElementById('x-ol').textContent)")
-    page.click("#x-olsetup"); page.wait_for_timeout(500)
-    script = ev("() => T.read('sample/Sync with Overleaf.command')")
-    check("Set up writes the sync script into the project folder", script.startswith("#!/bin/bash") and "security find-generic-password" in script and page.is_visible("#x-olhow"))
-    check("…with the one-time command that lets macOS run it", page.inner_text("#x-olcmd") == 'xattr -c "Sync with Overleaf.command"; chmod +x "Sync with Overleaf.command"')
+    page.fill("#x-olurl", "git clone https://git@git.overleaf.com/0123456789abcdef01234567")
+    check("the panel fills in the clone command from the Git link", page.inner_text("#x-olclone") == 'git clone https://git.overleaf.com/0123456789abcdef01234567 "export/overleaf"', page.inner_text("#x-olclone"))
+    check("no script is written into the project", "Sync with Overleaf.command" not in ev("() => T.ls('sample')"))
     page.keyboard.press("Escape")
-    # what the script's first run leaves: a git checkout of a fresh Overleaf project
+    # what git clone leaves: a checkout of a fresh Overleaf project
     ev("""async () => { await T.write('sample/export/overleaf/.git/HEAD', 'ref: refs/heads/master\\n'); await T.write('sample/export/overleaf/main.tex', '\\\\documentclass{article}\\n\\\\begin{document}\\nOverleaf starter\\n\\\\end{document}\\n'); }""")
     def wait_file(path, cond_js, ms=15000):
         for _ in range(ms // 300):
@@ -406,15 +405,16 @@ with sync_playwright() as p:
     check("…and the card is highlighted", "b-intro1" in ev("() => storyboard.state().hl"))
     check("a preamble edit in Overleaf goes into export/template/main.tex", "\\usepackage{xcolor}" in ev("() => T.read('sample/export/template/main.tex')"))
     check("a reference added in Overleaf goes into References/references.bib", "newkey2026" in ev("() => T.read('sample/References/references.bib')"))
-    # a clash: the script sets the three versions aside and takes Overleaf's; Paperboard asks
+    # a clash: git pull stops with diff3 conflict markers in main.tex; Paperboard reads the three versions and asks
     ev("""async () => {
-      const sent = await T.read('sample/export/.overleaf-sent/main.tex');
-      const theirs = sent.replace('Third, the dataset and code, released openly.', 'Third, the dataset, released under CC-BY.');
+      const base = await T.read('sample/export/.overleaf-sent/main.tex');
       await T.write('sample/Beats/Contributions.md', (await T.read('sample/Beats/Contributions.md')).replace('Third, the dataset and code, released openly.', 'Third, our dataset and code, released openly on Zenodo.'));
-      await storyboard.poll(); await new Promise(r => setTimeout(r, 1500));
-      const d = 'sample/export/overleaf-merge/2026-10-23-120000/';
-      await T.write(d + 'base-main.tex', sent); await T.write(d + 'ours-main.tex', sent); await T.write(d + 'theirs-main.tex', theirs);
-      await T.write('sample/export/overleaf/main.tex', theirs); }""")
+      await storyboard.poll(); await new Promise(r => setTimeout(r, 5000));
+      const lines = base.split('\\n'), i = lines.findIndex(l => l.includes('Third, the dataset and code, released openly.'));
+      const ours = lines[i].replace('Third, the dataset and code, released openly.', 'Third, our dataset and code, released openly on Zenodo.'), theirs = lines[i].replace('Third, the dataset and code, released openly.', 'Third, the dataset, released under CC-BY.');
+      lines.splice(i, 1, '<<<<<<< HEAD', ours, '||||||| 1a2b3c4', lines[i], '=======', theirs, '>>>>>>> 5d6e7f8');
+      window.__theirsLine = theirs;
+      await T.write('sample/export/overleaf/main.tex', lines.join('\\n')); }""")
     ok = False
     for _ in range(40):
         if "b-intro2" in ev("() => storyboard.state().conflicts"): ok = True; break
@@ -426,7 +426,12 @@ with sync_playwright() as p:
     check("Keep Overleaf's writes Overleaf's text into the beat", "released under CC-BY" in ev("() => T.read('sample/Beats/Contributions.md')"))
     page.keyboard.press("Escape")
     page.wait_for_timeout(4500)
-    check("the next sync sends the merged paper back to export/overleaf", "released under CC-BY" in ev("() => T.read('sample/export/overleaf/main.tex')"))
+    page.wait_for_timeout(1000)
+    olmain = ev("() => T.read('sample/export/overleaf/main.tex')")
+    check("Paperboard then writes the resolved main.tex, without conflict markers, ready for the same git command again", "released under CC-BY" in olmain and "<<<<<<<" not in olmain and "|||||||" not in olmain)
+    page.click("#olbtn"); page.wait_for_selector("#x-olsync")
+    check("the linked panel gives the sync command", page.inner_text("#x-olsync").startswith('cd "export/overleaf" && git add -A') and "merge.conflictStyle=diff3" in page.inner_text("#x-olsync"))
+    page.keyboard.press("Escape")
     # an edit to a figure float in Overleaf is kept in the beat's notes, not applied
     ev("""async () => { const p = 'sample/export/overleaf/main.tex'; await T.write(p, (await T.read(p)).replace('[width=\\\\linewidth]{figures/calibration_error.pdf}', '[width=0.8\\\\linewidth]{figures/calibration_error.pdf}')); }""")
     ok = wait_file("sample/Beats/Figure 1 calibration error.md", "t.includes('Overleaf edit') && t.includes('0.8')")

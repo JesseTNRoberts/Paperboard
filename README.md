@@ -17,14 +17,15 @@ Paperboard builds the paper's LaTeX from the beats in document order, and Overle
 
 ## Syncing with Overleaf (premium, Git integration)
 
-`export/overleaf/` is a git checkout of your Overleaf project, and Paperboard keeps the paper written into it: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. In the **Overleaf** panel, **Set up sync with Overleaf** puts `Sync with Overleaf.command` in the project folder. Make it runnable once (`chmod +x`), then double-click it to sync.
+A folder inside the project (`export/overleaf` by default) is your git clone of the Overleaf project. Paperboard keeps the paper written into it: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. You run git; the **Overleaf** panel gives you the commands, filled in.
 
-- **First run.** It asks for your Overleaf Git token, which goes into the macOS Keychain under "Paperboard Overleaf", and for the project's Git link.
-- **Each run.** It commits Paperboard's version, pulls Overleaf's changes, merges them, and pushes.
-- **Back into the beats.** Paperboard (open in Chrome) merges Overleaf's edits back into the beats it can match by marker. Preamble edits go to `export/template/main.tex`, and new references to `References/references.bib`. Edits to figure or table floats are kept in that beat's Notes.
-- **Clashes.** If both sides changed the same lines, the script sets the three versions aside in `export/overleaf-merge/` and takes Overleaf's. Paperboard merges them beat by beat and shows "Needs your choice" where they clash. Double-click again to send the result.
+- **Once.** Paste the project's Git link into the panel, then run the clone command it shows. When git asks, the username is `git` and the password is an Overleaf Git token; macOS keeps it in the Keychain.
+- **After a round of edits.** Run the sync command from the panel:
+  `cd "export/overleaf" && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null`
+  It sends Paperboard's version and brings in Overleaf's. Paperboard then merges Overleaf's edits back into the beats it can match by marker, preamble edits into `export/template/main.tex`, and new references into `References/references.bib`. Edits to figure or table floats are kept in that beat's Notes.
+- **Conflicts.** If both sides changed the same lines, git stops with conflict markers. Paperboard reads the three versions from them, merges beat by beat, and shows "Needs your choice" where the same lines changed. Once you've chosen, it writes the resolved files; run the same command again to send them.
 
-`test/sync_script_test.sh` tests the script against a local stand-in for Overleaf.
+`test/overleaf_git_test.sh` runs these commands against a local stand-in for Overleaf.
 
 ## What's in a project folder
 
@@ -68,7 +69,7 @@ The app round-trips this byte for byte: editing one part changes nothing else. I
 ## This repository
 
 - `index.html`: the app, one self-contained file. Built from `src/` by `build.sh` (just concatenation).
-- `src/`: `head.html` (styles and markup), `core.js` (beat format, merging, cursor mapping, Markdown to LaTeX), `app.js` (board, editor, files, live refresh), `research.js` (beat types, figures, code, dependencies), `latex.js` (assembling the paper's LaTeX), `overleaf.js` and `sync-with-overleaf.command` (the Overleaf round trip).
+- `src/`: `head.html` (styles and markup), `core.js` (beat format, merging, cursor mapping, Markdown to LaTeX), `app.js` (board, editor, files, live refresh), `research.js` (beat types, figures, code, dependencies), `latex.js` (assembling the paper's LaTeX), `overleaf.js` (the Overleaf round trip).
 - `sample/`: a small demo paper project. **Its numbers are synthetic demo data.**
 - `test/`: `node test/core.test.js src/core.js sample/Beats` (format and merge tests); `test/browser_test.py <url> sample <outdir>` (headless Chromium with Playwright, using the browser's private file system as the project folder, playing Claude against the open app). Set `MARKED_JS` to a local `marked@12.0.2` if the CDN is out of reach.
 

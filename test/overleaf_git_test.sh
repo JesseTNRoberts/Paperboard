@@ -1,0 +1,31 @@
+#!/bin/bash
+# The Overleaf panel's git commands, run for real against a local bare repo standing in for Overleaf,
+# and the conflict markers they leave read back by Paperboard's parser (src/core.js).
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+export GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=Me GIT_AUTHOR_EMAIL=me@x GIT_COMMITTER_NAME=Me GIT_COMMITTER_EMAIL=me@x
+SYNC='cd "export/overleaf" && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null'
+grep -qF "$SYNC" <(node -e '
+  const s = require("fs").readFileSync(process.argv[1], "utf8"), line = n => s.match(new RegExp("^const " + n + " = [^\\n]+", "m"))[0];
+  console.log(new Function("meta", "relPath", [line("OL_DEFAULT"), line("olDir"), line("shq"), line("olSyncCmd"), "return olSyncCmd();"].join("\n"))({ overleaf: {} }, p => p));' "$ROOT/src/overleaf.js") || { echo "FAIL the app's sync command isn't the one tested here"; exit 1; }
+pass=0; fail=0; ok() { if eval "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1"; fi; }
+cd "$T"; git init -q --bare overleaf.git; git --git-dir=overleaf.git symbolic-ref HEAD refs/heads/master
+git clone -q overleaf.git coauthor 2>/dev/null; (cd coauthor && printf 'starter\n' > main.tex && git add -A && git commit -qm init && git push -q origin HEAD:master 2>/dev/null)
+mkdir proj; cd proj; mkdir export; git clone -q ../overleaf.git export/overleaf
+ok "the clone command makes the folder" '[ -f export/overleaf/main.tex ]'
+printf 'A\nB\nC\nD\n' > export/overleaf/main.tex; eval "$SYNC" >/dev/null 2>&1
+ok "the sync command sends Paperboard's version" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A\nB\nC\nD")" ]'
+ok "…and comes back to the project folder" '[ -d export ]'
+(cd ../coauthor && git pull -q origin master 2>/dev/null && sed -i.bak "s/^A$/A overleaf/" main.tex && rm -f main.tex.bak && git commit -qam e && git push -q origin HEAD:master 2>/dev/null)
+sed -i.bak 's/^D$/D paperboard/' export/overleaf/main.tex; rm -f export/overleaf/main.tex.bak; eval "$SYNC" >/dev/null 2>&1
+ok "edits on both sides in different lines merge and go to Overleaf" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A overleaf\nB\nC\nD paperboard")" ]'
+(cd ../coauthor && git pull -q origin master 2>/dev/null && sed -i.bak "s/^B$/B coauthor/" main.tex && rm -f main.tex.bak && git commit -qam e2 && git push -q origin HEAD:master 2>/dev/null)
+sed -i.bak 's/^B$/B me/' export/overleaf/main.tex; rm -f export/overleaf/main.tex.bak; eval "$SYNC" >/dev/null 2>&1
+ok "a clash leaves diff3 conflict markers and pushes nothing" 'grep -q "^|||||||" export/overleaf/main.tex && ! git --git-dir=../overleaf.git show master:main.tex | grep -q "B me"'
+SIDES="$(node -e 'const C = require(process.argv[1]); const g = C.gitConflictSides(require("fs").readFileSync(process.argv[2], "utf8")); console.log(JSON.stringify(g));' "$ROOT/src/core.js" export/overleaf/main.tex)"
+ok "Paperboard reads the common, its own and Overleaf's version from the markers" 'node -e "const g = JSON.parse(process.argv[1]); process.exit(g.conflict && g.hasBase && g.base === \"A overleaf\nB\nC\nD paperboard\n\" && g.ours === \"A overleaf\nB me\nC\nD paperboard\n\" && g.theirs === \"A overleaf\nB coauthor\nC\nD paperboard\n\" ? 0 : 1)" "$SIDES"'
+printf 'A overleaf\nB me and coauthor\nC\nD paperboard\n' > export/overleaf/main.tex   # what Paperboard writes after merging the beats
+eval "$SYNC" >/dev/null 2>&1
+ok "running the same command again sends the resolved version" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A overleaf\nB me and coauthor\nC\nD paperboard")" ]'
+echo "$pass passed, $fail failed"; [ "$fail" = 0 ]

@@ -408,6 +408,20 @@ function splitPaperTex(tex) {   // {pre, post, blocks: Map(key -> latex), sectio
   close();
   return { pre, post, blocks, sections, order };
 }
+/* a file git left with conflict markers (merge.conflictStyle=diff3): the three versions it came from */
+const hasGitConflict = t => /^<{7}( |$)/m.test(t || "") && /^>{7}( |$)/m.test(t || "");
+function gitConflictSides(text) {
+  const ours = [], base = [], theirs = []; let state = 0, sawBase = false, sawAny = false;   // 0 outside, 1 ours, 2 base, 3 theirs
+  for (const line of String(text).split("\n")) {
+    if (state === 0 && /^<{7}( |$)/.test(line)) { state = 1; sawAny = true; continue; }
+    if (state === 1 && /^\|{7}( |$)/.test(line)) { state = 2; sawBase = true; continue; }
+    if ((state === 1 || state === 2) && /^={7}$/.test(line)) { state = 3; continue; }
+    if (state === 3 && /^>{7}( |$)/.test(line)) { state = 0; continue; }
+    if (state === 0) { ours.push(line); base.push(line); theirs.push(line); }
+    else if (state === 1) ours.push(line); else if (state === 2) base.push(line); else theirs.push(line);
+  }
+  return { conflict: sawAny, hasBase: sawBase, ours: ours.join("\n"), base: base.join("\n"), theirs: theirs.join("\n") };
+}
 /* LaTeX back to Markdown, only where it converts forward again to exactly the same LaTeX; otherwise the LaTeX itself (beats accept it) */
 function latexToMd(tex) {
   const t = String(tex ?? "");
@@ -427,4 +441,4 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };
+  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
