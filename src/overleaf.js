@@ -10,8 +10,10 @@
 const OL_DEFAULT = "export/overleaf", OL_SENT = "export/.overleaf-sent";
 const olDir = () => relPath(meta?.overleaf?.dir) || OL_DEFAULT;   // the folder in the project that is your git clone of the Overleaf project
 const shq = s => `"${String(s).replace(/(["\\$`])/g, "\\$1")}"`;
-const olFirstCmd = url => `cd ${shq(olDir())} && git init -q && git checkout -q -B main && git add -A && (git commit -qm "Paperboard" || true) && (git remote add origin ${shq(url)} 2>/dev/null || git remote set-url origin ${shq(url)}) && (git pull -q --no-rebase --no-edit --allow-unrelated-histories -X ours origin main 2>/dev/null || true) && git push -u origin main; cd - >/dev/null`;   // Overleaf only accepts the branch "main"
-const olSyncCmd = () => `cd ${shq(olDir())} && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null`;
+const olBase = () => { try { return String(LS.get("projectPath:" + (root?.name || ""), "") || "").trim().replace(/\/+$/, ""); } catch (e) { return ""; } };   // the project folder's full path on this computer, if you gave it
+const olCd = () => { const b = olBase(), d = olDir(); return !b ? shq(d) : b.startsWith("~/") ? "~/" + shq(b.slice(2) + "/" + d) : shq(b + "/" + d); };   // ~ only expands outside quotes
+const olFirstCmd = url => `cd ${olCd()} && git init -q && git checkout -q -B main && git add -A && (git commit -qm "Paperboard" || true) && (git remote add origin ${shq(url)} 2>/dev/null || git remote set-url origin ${shq(url)}) && (git pull -q --no-rebase --no-edit --allow-unrelated-histories -X ours origin main 2>/dev/null || true) && git push -u origin main; cd - >/dev/null`;   // Overleaf only accepts the branch "main"
+const olSyncCmd = () => `cd ${olCd()} && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null`;
 const olOpts = () => { meta.overleaf ||= {}; return meta.overleaf; };
 let olLast = { stamp: null }, olInfo = { linked: false, imported: null, notes: [], waiting: false, handled: null, noBase: false };
 const olClashes = () => Object.keys(conflicts).filter(k => conflicts[k].who === "Overleaf" && beatByKey(k));
@@ -149,6 +151,7 @@ async function olSync() { await olImport(); await olExport(); }
 async function olPoll() {   // git ran: bring the edits in
   if (!root || !meta) return;
   const repo = await olRepo(), active = !!(meta.overleaf?.on || repo);
+  $("olcopy").hidden = !repo;
   if (!!repo !== olInfo.linked) { olInfo.linked = !!repo; renderOverleaf(); if (active) return enqueue("overleaf", olSync); }
   if (!active) return;
   const st = await olStamp();
@@ -170,7 +173,15 @@ async function renderOverleaf() {
   const repo = await olRepo(), o = olOpts();
   const all = [...olInfo.notes, ...(olInfo.paperNotes || [])];
   const notes = all.length ? `<div class="warn">${all.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "";
-  const term = `In Terminal, type <code>cd </code> (with a space), drag the <b>${esc(root.name)}</b> folder into the window and press Return; then paste this and press Return:`;
+  const term = olBase() ? `Paste this into Terminal and press Return:` : `In Terminal, type <code>cd </code> (with a space), drag the <b>${esc(root.name)}</b> folder into the window and press Return; then paste this and press Return:`;
+  const pathRow = `<label for="x-olpath" style="margin-top:10px">This project's folder on this computer <span class="help">(optional; then the command works from any Terminal window)</span></label>
+      <input type="text" id="x-olpath" class="mono" placeholder="/Users/you/Papers/${esc(root.name)}" value="${esc(olBase())}" spellcheck="false">
+      <p class="help">In Finder, select the <b>${esc(root.name)}</b> folder, press ⌥⌘C (Copy as Pathname) and paste it here. The <b>Copy sync command</b> button in the toolbar copies the command any time.</p>`;
+  const wirePath = () => { const el = $("x-olpath"); if (!el) return; el.onchange = () => {
+    const v = el.value.trim().replace(/^file:\/\//, "").replace(/\/+$/, "");
+    if (v && !/^(\/|~\/)/.test(v)) { setStatus("That should be a full path, starting with / (or ~/).", true); el.value = olBase(); return; }
+    LS.set("projectPath:" + root.name, v); renderOverleaf();
+    if (v && v.split("/").pop() !== root.name) setStatus(`Saved. Note that the path ends in “${v.split("/").pop()}”, not “${root.name}”.`); }; };
   if (!repo && !o.on) {   // 1. not started
     box.innerHTML = `<b>Overleaf</b> <span class="help">Paperboard writes the paper as LaTeX into a folder in the project, and you push that folder to Overleaf with git.</span>
       <label for="x-oldir">Folder</label><input type="text" id="x-oldir" class="mono" value="${esc(olDir())}" spellcheck="false">
@@ -188,16 +199,24 @@ async function renderOverleaf() {
           <input type="text" id="x-olurl" class="mono" placeholder="https://git.overleaf.com/0123456789abcdef01234567" value="${esc(o.url || "")}" spellcheck="false"></li>
         <li>${term}${cmdRow("x-olfirst", olFirstCmd(o.url || "<the Git link>"))}
           When git asks, the username is <code>git</code> and the password is an Overleaf Git token (Account Settings &gt; Git integration). macOS keeps it in your Keychain, so you're asked only once.</li>
-      </ol>
+      </ol>${pathRow}
       <p class="help">This makes the folder a git repository and pushes the paper to Overleaf. If the Overleaf project already has a starter main.tex, Paperboard's version replaces it (the starter stays in Overleaf's history).</p>${notes}`;
     const url = $("x-olurl");
     url.oninput = () => { o.url = cleanGitUrl(url.value); saveMetaSoon(); $("x-olfirst").textContent = olFirstCmd(o.url || "<the Git link>"); };
-    wireCopy(box); renderOverleafLater(); return;
+    wireCopy(box); wirePath(); renderOverleafLater(); return;
   }
   box.innerHTML = `<b>Overleaf</b> <span class="help">Linked: <code>${esc(olDir())}</code> is a git repository for your Overleaf project, and Paperboard keeps the paper in it as main.tex (with the template's files, references.bib and the figures).${olInfo.imported ? ` Last brought Overleaf's edits in at ${fmtTime(olInfo.imported)}.` : ""}</span>
     <p class="help" style="margin-top:8px">To sync after a round of edits, ${term.replace(/^In Terminal/, "in Terminal").replace(/then paste this and press Return:$/, "then run:")}</p>
     ${cmdRow("x-olsync", olSyncCmd())}
-    <p class="help">It sends Paperboard's version, brings in Overleaf's, and Paperboard merges Overleaf's edits back into the beats within a few seconds. If git says there's a conflict, Paperboard merges it beat by beat (asking you where the same lines changed on both sides); then run the same command again.</p>${notes}`;
-  wireCopy(box);
+    <p class="help">It sends Paperboard's version, brings in Overleaf's, and Paperboard merges Overleaf's edits back into the beats within a few seconds. If git says there's a conflict, Paperboard merges it beat by beat (asking you where the same lines changed on both sides); then run the same command again.</p>${pathRow}${notes}`;
+  wireCopy(box); wirePath();
 }
 function renderOverleafLater() { clearTimeout(renderOverleafLater.t); renderOverleafLater.t = setTimeout(async () => { if (await olRepo()) renderOverleaf(); else renderOverleafLater(); }, 4000); }
+
+/* the toolbar's Copy sync command: the same command as the panel, one click away */
+$("olcopy").onclick = async () => {
+  const cmd = olSyncCmd(), btn = $("olcopy");
+  try { await navigator.clipboard.writeText(cmd); } catch (e) { showOverleafPanel(); return; }
+  btn.textContent = "Copied"; setTimeout(() => btn.textContent = "Copy sync command", 1500);
+  setStatus(olBase() ? "Sync command copied: paste it into Terminal." : `Sync command copied. In Terminal, cd into the ${root.name} folder first (or give its path in the Overleaf panel, and the command works from anywhere).`);
+};

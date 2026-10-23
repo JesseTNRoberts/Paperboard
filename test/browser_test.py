@@ -434,6 +434,13 @@ with sync_playwright() as p:
     check("Paperboard then writes the resolved main.tex, without conflict markers, ready for the same git command again", "released under CC-BY" in olmain and "<<<<<<<" not in olmain and "|||||||" not in olmain)
     page.click("#olbtn"); page.wait_for_selector("#x-olsync")
     check("the linked panel gives the sync command", page.inner_text("#x-olsync").startswith('cd "export/overleaf" && git add -A') and "merge.conflictStyle=diff3" in page.inner_text("#x-olsync"))
+    page.fill("#x-olpath", "/Users/me/My Papers/sample/"); page.dispatch_event("#x-olpath", "change"); page.wait_for_timeout(300)
+    check("with the project's full path, the command works from any Terminal window", page.inner_text("#x-olsync").startswith('cd "/Users/me/My Papers/sample/export/overleaf" && git add -A'), page.inner_text("#x-olsync")[:80])
+    check("the toolbar has Copy sync command once the folder is linked", page.locator("#olcopy").is_visible())
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=BASE.split("/index")[0])
+    page.click("#olcopy"); page.wait_for_timeout(300)
+    check("Copy sync command copies the same command", ev("() => navigator.clipboard.readText()").startswith('cd "/Users/me/My Papers/sample/export/overleaf"') and "Sync command copied" in page.inner_text("#status"))
+    page.fill("#x-olpath", ""); page.dispatch_event("#x-olpath", "change"); page.wait_for_timeout(300)
     page.keyboard.press("Escape")
     # an edit to a figure float in Overleaf is kept in the beat's notes, not applied
     ev("""async () => { const p = 'sample/export/overleaf/main.tex'; await T.write(p, (await T.read(p)).replace('[width=\\\\linewidth]{figures/calibration_error.pdf}', '[width=0.8\\\\linewidth]{figures/calibration_error.pdf}')); }""")

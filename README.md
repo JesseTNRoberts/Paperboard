@@ -18,7 +18,7 @@ Paperboard builds the paper's LaTeX from the beats in document order, and Overle
 
 ## Syncing with Overleaf (premium, Git integration)
 
-A folder inside the project (`export/overleaf` by default) holds the paper as LaTeX: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. Paperboard starts writing it when you press **Start** in the **Overleaf** panel. You push that folder to Overleaf with git; the panel gives you the commands, filled in.
+A folder inside the project (`export/overleaf` by default) holds the paper as LaTeX: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. Paperboard starts writing it when you press **Start** in the **Overleaf** panel. You push that folder to Overleaf with git; the panel gives you the commands, filled in. Once linked, **Copy sync command** in the toolbar copies the sync command in one click. Give the project's full path in the Overleaf panel (in Finder, ⌥⌘C) and the command works from any Terminal window.
 
 - **Once.** Paste the Overleaf project's Git link into the panel and run the first-push command it shows, from the project folder. It makes the folder a git repository and pushes the paper; this works for an empty Overleaf project, and if Overleaf already made a starter `main.tex`, Paperboard's version replaces it. When git asks, the username is `git` and the password is an Overleaf Git token; macOS keeps it in the Keychain.
 - **After a round of edits.** Run the sync command from the panel:

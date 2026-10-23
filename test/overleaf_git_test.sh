@@ -8,8 +8,8 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=Me GIT_AUTHOR_EMAIL=me@x GIT_
 # the exact commands the app shows, taken from src/overleaf.js
 CMDS="$(node -e '
   const s = require("fs").readFileSync(process.argv[1], "utf8"), line = n => s.match(new RegExp("^const " + n + " = [^\\n]+", "m"))[0];
-  const f = new Function("meta", "relPath", [line("OL_DEFAULT"), line("olDir"), line("shq"), line("olFirstCmd"), line("olSyncCmd"), "return [olFirstCmd(\"URL_HERE\"), olSyncCmd()];"].join("\n"));
-  console.log(f({ overleaf: {} }, p => p).join("\n"));' "$ROOT/src/overleaf.js")"
+  const f = new Function("meta", "relPath", "LS", "root", [line("OL_DEFAULT"), line("olDir"), line("shq"), line("olBase"), line("olCd"), line("olFirstCmd"), line("olSyncCmd"), "return [olFirstCmd(\"URL_HERE\"), olSyncCmd()];"].join("\n"));
+  console.log(f({ overleaf: {} }, p => p, { get: () => process.env.PB_BASE || "" }, { name: "proj" }).join("\n"));' "$ROOT/src/overleaf.js")"
 FIRST="$(printf '%s\n' "$CMDS" | sed -n 1p)"; SYNC="$(printf '%s\n' "$CMDS" | sed -n 2p)"
 [ -n "$FIRST" ] && [ -n "$SYNC" ] || { echo "FAIL couldn't read the commands from the app"; exit 1; }
 first() { eval "${FIRST//URL_HERE/$1}"; }
@@ -42,4 +42,15 @@ ok "Paperboard reads the common, its own and Overleaf's version from the markers
 printf 'A overleaf\nB me and coauthor\nC\nD paperboard\n' > export/overleaf/main.tex   # what Paperboard writes after merging the beats
 eval "$SYNC" >/dev/null 2>&1
 ok "running the same command again sends the resolved version" '[ "$(git --git-dir=../overleaf.git show main:main.tex)" = "$(printf "A overleaf\nB me and coauthor\nC\nD paperboard")" ]'
+# with the project's full path given in the panel, the command works from any directory
+cmds_for() { PB_BASE="$1" node -e '
+  const s = require("fs").readFileSync(process.argv[1], "utf8"), line = n => s.match(new RegExp("^const " + n + " = [^\n]+", "m"))[0];
+  const f = new Function("meta", "relPath", "LS", "root", [line("OL_DEFAULT"), line("olDir"), line("shq"), line("olBase"), line("olCd"), line("olSyncCmd"), "return olSyncCmd();"].join("\n"));
+  console.log(f({ overleaf: {} }, p => p, { get: () => process.env.PB_BASE }, { name: "proj" }));' "$ROOT/src/overleaf.js"; }
+ABS="$(cmds_for "$T/proj/")"
+printf 'A overleaf\nB me and coauthor\nC\nD paperboard, from anywhere\n' > export/overleaf/main.tex
+(cd / && eval "$ABS") >/dev/null 2>&1
+ok "with the project's path, the sync command works from any folder" '[ "$(git --git-dir=../overleaf.git show main:main.tex | tail -1)" = "D paperboard, from anywhere" ]'
+ok "…and the path is quoted (spaces are fine)" 'case "$(cmds_for "/Users/me/My Papers/proj")" in "cd \"/Users/me/My Papers/proj/export/overleaf\" &&"*) true;; *) false;; esac'
+ok "…and ~/ still expands" 'case "$(cmds_for "~/My Papers/proj")" in "cd ~/\"My Papers/proj/export/overleaf\" &&"*) true;; *) false;; esac'
 echo "$pass passed, $fail failed"; [ "$fail" = 0 ]
