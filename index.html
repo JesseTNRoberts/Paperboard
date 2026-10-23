@@ -323,6 +323,11 @@ input.mono { font-size:12.5px; }
 .pdfview { flex:1; min-height:300px; border:1px solid var(--edge); border-radius:4px; background:#525659; overflow:hidden; display:flex; }
 .pdfview iframe { flex:1; border:0; width:100%; height:100%; min-height:300px; background:#525659; }
 .pdfview .empty { margin:auto; color:#e4ebe9; font-size:14px; padding:24px; text-align:center; max-width:420px; line-height:1.5; }
+.olbox { margin:6px 0 4px; padding:8px 10px; border:1px solid var(--edge); border-radius:4px; background:var(--card); font-size:13px; }
+.olbox .help { margin:0 0 0 4px; display:inline; }
+.olbox .mini { margin-left:6px; }
+.olsteps { margin:8px 0 4px; padding-left:20px; font-size:13px; line-height:1.5; }
+.olsteps code { background:var(--board); padding:0 4px; border-radius:3px; }
 .srcnote { font-size:11.5px; color:var(--ink-soft); margin-top:16px; }
 .srcnote a { color:inherit; }
 </style>
@@ -746,9 +751,45 @@ function latexAssets(tex) {
   return [...out];
 }
 
+/* ---------- the generated paper, split back into its beats (for edits made in Overleaf) ---------- */
+const beatTagId = line => { const m = line.match(/^% beat: .* \(([^()]+)\) \(empty\)\s*$/) || line.match(/^% beat: .* \(([^()]+)\)\s*$/); return m ? m[1] : null; };
+const BODY_START = "% ---- PAPERBOARD BODY START ----", BODY_END = "% ---- PAPERBOARD BODY END ----";
+function splitPaperTex(tex) {   // {pre, post, blocks: Map(key -> latex), sections: Map(name -> latex), order}, or null without markers
+  tex = String(tex ?? "").replace(/\r/g, "");
+  const a = tex.indexOf(BODY_START), b = tex.indexOf(BODY_END);
+  if (a < 0 || b < a) return null;
+  const pre = tex.slice(0, a), post = tex.slice(b + BODY_END.length), body = tex.slice(a + BODY_START.length, b);
+  const blocks = new Map(), sections = new Map(), order = []; let cur = null, buf = [];
+  const close = () => { if (!cur) return; const t = buf.join("\n").replace(/^\n+|\s+$/g, ""); (cur.kind === "beat" ? blocks : sections).set(cur.id, t); order.push(cur); buf = []; };
+  for (const line of body.split("\n")) {
+    let m;
+    if ((m = line.match(/^% beat: .* \(([^()]+)\) \(empty\)\s*$/) || line.match(/^% beat: .* \(([^()]+)\)\s*$/))) { close(); cur = { kind: "beat", id: m[1] }; continue; }
+    if ((m = line.match(/^% section: (.*)$/))) { close(); cur = { kind: "section", id: m[1].trim() }; continue; }
+    if ((m = line.match(/^% end: (.*)$/))) { close(); cur = { kind: "section", id: "end: " + m[1].trim() }; continue; }
+    if (cur) buf.push(line);
+  }
+  close();
+  return { pre, post, blocks, sections, order };
+}
+/* LaTeX back to Markdown, only where it converts forward again to exactly the same LaTeX; otherwise the LaTeX itself (beats accept it) */
+function latexToMd(tex) {
+  const t = String(tex ?? "");
+  let md = t
+    .replace(/\\textbf\{([^{}]*)\}/g, "**$1**").replace(/\\(?:emph|textit)\{([^{}]*)\}/g, "*$1*")
+    .replace(/\\texttt\{([^{}]*)\}/g, (m, c) => "`" + c.replace(/\\([&%#_{}$])/g, "$1").replace(/\\textbackslash\{\}/g, "\\") + "`")
+    .replace(/\\citep\[([^\]]*)\]\[([^\]]*)\]\{([^}]+)\}/g, (m, pre, post, keys) => "[" + keys.split(",").map((k, i, a) => (i === 0 && pre ? pre + " " : "") + "@" + k.trim() + (i === a.length - 1 && post ? ", " + post : "")).join("; ") + "]")
+    .replace(/\\citep\[([^\]]*)\]\{([^}]+)\}/g, (m, post, keys) => "[" + keys.split(",").map((k, i, a) => "@" + k.trim() + (i === a.length - 1 && post ? ", " + post : "")).join("; ") + "]")
+    .replace(/\\citep\{([^}]+)\}/g, (m, keys) => "[" + keys.split(",").map(k => "@" + k.trim()).join("; ") + "]")
+    .replace(/\\citet\{([^},]+)\}/g, "@$1")
+    .replace(/(^|[\s(])\\ref\{((?:fig|tab|sec|eq|lst|app|alg):[^}]+)\}/g, "$1@$2")
+    .replace(/``([^`']*)''/g, '"$1"')
+    .replace(/\\([&%#_])/g, "$1");
+  return mdToLatex(md) === t ? md : t;
+}
+
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, slugify, latexAssets };
+  mdToLatex, mdInline, texEscape, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };
 </script>
 <script>
 "use strict";
@@ -1185,7 +1226,7 @@ addEventListener("keydown", e => {   // ⌘⌫ marks the selected or open beats 
 
 /* ================= generated files: digest, Claude adjusts, section notes ================= */
 let genTimer = null;
-function writeGeneratedSoon(ms = 1500) { clearTimeout(genTimer); genTimer = setTimeout(() => { if (root && meta) track(writeGenerated()).catch(() => {}); }, ms); }
+function writeGeneratedSoon(ms = 1500) { clearTimeout(genTimer); genTimer = setTimeout(() => { if (root && meta) track(writeGenerated()).catch(() => {}); }, ms); olExportSoon(); }
 const genLast = {};
 const STAMP_RE = /^_(Generated|Rebuilt) by the storyboard [^\n]*_\n\n/m;
 const stripStamp = t => t.replace(STAMP_RE, "");
@@ -2029,16 +2070,17 @@ function diffMarks(text, other) {   // show the lines that differ between the tw
 }
 function showConflict(b) {
   const c = conflicts[b.key]; if (!c) return;
+  const who = c.who || "Claude";
   activeKey = b.key; setPanelMode(null); panel.classList.add("conflictp"); writeOpen(b.file);
-  panel.innerHTML = `<header><div><div class="eyebrow">You and Claude changed the same lines</div><h2>${esc(b.title)}</h2></div><button class="x" aria-label="Close">✕</button></header>
-    <p class="help">Everything else merged on its own. Keep one version, or edit the combined text: the clashing lines sit between the <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> markers. Nothing is written to the beat until you choose. Until then the file holds Claude's version, and the one you don't keep is saved in Backups/Conflicts.</p>
-    <div class="cols"><div><span class="lbl">Your version</span><pre>${diffMarks(c.mine, c.theirs)}</pre></div><div><span class="lbl">Claude's version</span><pre>${diffMarks(c.theirs, c.mine)}</pre></div></div>
+  panel.innerHTML = `<header><div><div class="eyebrow">You and ${esc(who)} changed the same lines</div><h2>${esc(b.title)}</h2></div><button class="x" aria-label="Close">✕</button></header>
+    <p class="help">Everything else merged on its own. Keep one version, or edit the combined text: the clashing lines sit between the <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> markers. Nothing is written to the beat until you choose. ${who === "Claude" ? "Until then the file holds Claude's version, and the" : "The"} one you don't keep is saved in Backups/Conflicts.</p>
+    <div class="cols"><div><span class="lbl">Your version</span><pre>${diffMarks(c.mine, c.theirs)}</pre></div><div><span class="lbl">${esc(who)}'s version</span><pre>${diffMarks(c.theirs, c.mine)}</pre></div></div>
     <label for="cf-text">Combined</label><textarea id="cf-text" spellcheck="false">${esc(c.merged)}</textarea>
-    <div class="btnrow"><button id="cf-mine">Keep mine</button><button id="cf-theirs">Keep Claude's</button><button id="cf-save" class="primary">Save combined text</button></div>`;
+    <div class="btnrow"><button id="cf-mine">Keep mine</button><button id="cf-theirs">Keep ${esc(who)}'s</button><button id="cf-save" class="primary">Save combined text</button></div>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   const done = async (text, label) => {
     try {
-      if (label !== "theirs") await backupConflict(b, "Claude's version", c.theirs);
+      if (label !== "theirs") await backupConflict(b, `${who}'s version`, c.theirs);
       if (label !== "mine") await backupConflict(b, "your version", c.mine);
     } catch (e) { return setStatus("Couldn't save the backup copy, so nothing was changed: " + e.message, true); }
     delete conflicts[b.key]; updateConflictBtn();
@@ -2058,7 +2100,7 @@ function showConflict(b) {
     panel.querySelectorAll(".conflictp pre").forEach(pre => { const m = pre.querySelector("mark"); if (m) pre.scrollTop = Math.max(0, m.offsetTop - pre.offsetTop - 30); });
     const ta = $("cf-text"), i = ta.value.indexOf(MARK_MINE); if (i >= 0) { const line = ta.value.slice(0, i).split("\n").length; ta.scrollTop = Math.max(0, (line - 3) * parseFloat(getComputedStyle(ta).lineHeight)); }
   });
-  setStatus(`“${b.title}”: you and Claude changed the same lines. Choose a version.`, true);
+  setStatus(`“${b.title}”: you and ${who} changed the same lines. Choose a version.`, true);
 }
 
 /* which beat is open, so Claude can leave it alone */
@@ -2081,6 +2123,7 @@ async function poll(force) {
     let go = force === true || f !== flagSeen || missingOnce.size > 0 || Date.now() - lastFull > 15000;
     if (!go) { try { const m = (await (await root.getFileHandle(BOARD)).getFile()).lastModified; if (m !== metaMtime) go = true; } catch (e) {} }
     if (go) { flagSeen = f; lastFull = Date.now(); await syncFromDisk(); await scanLinked(false); await pollCode(); }
+    await olPoll();
   } catch (e) { console.warn("refresh failed", e); }
   finally { polling = false; }
 }
@@ -2546,22 +2589,25 @@ function floatTex(b, p, kind) {   // a Figure or Table beat as a float
   const cap = long ? `  \\caption${short && short !== long ? `[${short}]` : ""}{${long}}\n` : "";
   return kind === "table" ? `\\begin{${env}}[t]\n  \\centering\n${cap}${inner}\n  \\label{${label}}\n\\end{${env}}` : `\\begin{${env}}[t]\n  \\centering\n${inner}\n${cap}  \\label{${label}}\n\\end{${env}}`;
 }
+function beatLatex(b, p = beatParts(b.text)) {   // one beat's LaTeX ("" for an empty beat)
+  if (p.type === "Figure") return floatTex(b, p, "figure");
+  if (p.type === "Table") return floatTex(b, p, "table");
+  if (!p.body.trim()) return "";
+  if (p.type === "Paragraph") return mdToLatex(p.body);
+  return `\\paragraph{${mdInline(b.title)}.}\n` + mdToLatex(p.body);
+}
+const beatIncluded = p => !(INCLUDABLE.includes(p.type) && !latexOpts().include[p.type]);
 function buildBody() {
-  const o = latexOpts(), parts = [];
+  const parts = [];
   docOrder().forEach(({ act, beats: list }) => {
     const isAbstract = /^abstract$/i.test(act.name.trim());
     const chunk = [];
     list.forEach(b => {
-      const p = beatParts(b.text);
-      if (INCLUDABLE.includes(p.type) && !o.include[p.type]) return;
-      const tag = `% beat: ${b.title.replace(/\n/g, " ")} (${b.key})`;
-      if (p.type === "Figure") chunk.push(tag + "\n" + floatTex(b, p, "figure"));
-      else if (p.type === "Table") chunk.push(tag + "\n" + floatTex(b, p, "table"));
-      else if (!p.body.trim()) chunk.push(tag + " (empty)");
-      else if (p.type === "Paragraph") chunk.push(tag + "\n" + mdToLatex(p.body));
-      else chunk.push(tag + `\n\\paragraph{${mdInline(b.title)}.}\n` + mdToLatex(p.body));
+      const p = beatParts(b.text); if (!beatIncluded(p)) return;
+      const tag = `% beat: ${b.title.replace(/\n/g, " ")} (${b.key})`, tex = beatLatex(b, p);
+      chunk.push(tex ? tag + "\n" + tex : tag + " (empty)");
     });
-    if (isAbstract) { if (chunk.length) parts.push(`\\begin{abstract}\n${chunk.join("\n\n")}\n\\end{abstract}`); }
+    if (isAbstract) { if (chunk.length) parts.push(`% section: ${act.name}\n\\begin{abstract}\n${chunk.join("\n\n")}\n% end: ${act.name}\n\\end{abstract}`); }
     else parts.push(`% section: ${act.name}\n\\section{${mdInline(act.name)}}\n\\label{sec:${slugify(act.name)}}\n\n${chunk.join("\n\n")}`);
   });
   return `% Written by Paperboard from the beats, in document order. Edit the beats, not this file.\n\n${parts.join("\n\n")}\n`;
@@ -2580,12 +2626,12 @@ async function assemblePaper() {
   const tmplFile = await fileAt(MAIN_TEX), bib = await fileAt("References/references.bib");
   let main = tmplFile ? await tmplFile.text() : DEFAULT_TEMPLATE(root.name, !!bib && /\\cite|\\citep|\\citet/.test(body));
   const notes = [];
-  if (BODY_MARK.test(main)) main = main.replace(BODY_MARK, () => "% ---- PAPERBOARD BODY START ----\n" + body + "% ---- PAPERBOARD BODY END ----");
-  else if (BODY_INPUT.test(main)) main = main.replace(BODY_INPUT, () => "% ---- PAPERBOARD BODY START ----\n" + body + "% ---- PAPERBOARD BODY END ----");
+  if (BODY_MARK.test(main)) main = main.replace(BODY_MARK, () => BODY_START + "\n" + body + BODY_END);
+  else if (BODY_INPUT.test(main)) main = main.replace(BODY_INPUT, () => BODY_START + "\n" + body + BODY_END);
   else {
     const at = main.search(/\\bibliography\s*\{|\\printbibliography|\\end\{document\}/);
     if (at < 0) throw new Error(`${MAIN_TEX} has no \\end{document}.`);
-    main = main.slice(0, at) + "% ---- PAPERBOARD BODY START ----\n" + body + "% ---- PAPERBOARD BODY END ----\n" + main.slice(at);
+    main = main.slice(0, at) + BODY_START + "\n" + body + BODY_END + "\n" + main.slice(at);
     notes.push(`${MAIN_TEX} has no “%% PAPERBOARD BODY” line, so the paper went in before the bibliography. Add that line where the paper belongs.`);
   }
   const files = [];   // template files (except main.tex), at the top level as the template expects
@@ -2632,7 +2678,7 @@ function texErrors(log, main) {   // "! …" errors with the line they point at,
     for (let j = i + 1; j < Math.min(lines.length, i + 12); j++) { const m = lines[j].match(/^l\.(\d+)\s?(.*)$/); if (m) { ln = +m[1]; ctx = m[2]; break; } }
     let beat = null, section = null;
     if (ln) for (let k = Math.min(ln, mainLines.length) - 1; k >= 0; k--) {
-      const bm = mainLines[k].match(/^% beat: .* \(([^()]+)\)( \(empty\))?$/); if (bm && !beat) { beat = bm[1]; break; }
+      const id = beatTagId(mainLines[k]); if (id) { beat = id; break; }
       if (/^% ---- PAPERBOARD BODY START/.test(mainLines[k])) break;
     }
     const msg = lines[i].replace(/^!\s*/, ""), miss = msg.match(/File `([^']+)' not found/);
@@ -2652,6 +2698,7 @@ function showPdfPanel() {
       <span class="grow"></span><a id="x-open" href="#" target="_blank" rel="noopener" hidden>Open in a new tab</a>
     </div>
     <p class="help" id="x-tmpl"></p>
+    <div class="olbox" id="x-ol"></div>
     <div id="x-status" class="xstatus" role="status"></div>
     <div id="x-errs"></div>
     <div class="pdfview" id="x-view"><div class="empty">${canCompile() ? "Compile to see the paper." : "Compiling needs the online app (https://jessetnroberts.com/Paperboard/) in Chrome or Edge. Claude can also compile export/paper.tex for you."}</div></div>`;
@@ -2661,6 +2708,7 @@ function showPdfPanel() {
   $("x-compile").onclick = compilePaper;
   (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>. Output: <code>export/paper.pdf</code>, with <code>export/paper.tex</code> and <code>export/paper.log</code>.` : `No conference template yet, so a plain article is used. Ask Claude to set up the conference's official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
   if (lastCompile) renderCompile(lastCompile);
+  renderOverleaf();
 }
 function setX(t, err) { const s = $("x-status"); if (s) { s.textContent = t; s.classList.toggle("err", !!err); } }
 async function compilePaper() {
@@ -2708,6 +2756,169 @@ function renderCompile(c) {
   $("x-errs").querySelectorAll("[data-k]").forEach(btn => btn.onclick = () => { panel.classList.remove("pdfp"); openBeat(btn.dataset.k); });
 }
 $("pdfbtn").onclick = () => { if (meta) showPdfPanel(); };
+const SYNC_SCRIPT_TEXT = "#!/bin/bash\n# Sync with Overleaf (written by Paperboard). Double-click to send the paper to Overleaf and bring Overleaf's edits back.\n#\n# export/overleaf/ is a git copy of your Overleaf project. Paperboard keeps the paper written into it, and this script:\n#   1. commits what Paperboard wrote,\n#   2. pulls Overleaf's changes and merges them,\n#   3. pushes the result to Overleaf.\n# Paperboard (open in Chrome) then merges Overleaf's edits back into the beats.\n# If both sides changed the same lines, this script sets the three versions aside in export/overleaf-merge/ and takes\n# Overleaf's version; Paperboard merges them beat by beat and asks you where they clash; then double-click again.\n#\n# The Overleaf token is kept in your macOS Keychain (service \"Paperboard Overleaf\"), never in a file.\n\ncd \"$(dirname \"$0\")\" || exit 1\nREPO=\"export/overleaf\"\nSERVICE=\"Paperboard Overleaf\"\nTRIPLES=\"main.tex references.bib\"\nsay() { printf '%s\\n' \"$*\"; }\nfinish() { say \"\"; say \"$1\"; say \"\"; [ -t 0 ] && [ -z \"$PAPERBOARD_NO_PAUSE\" ] && read -n 1 -s -r -p \"Press any key to close.\"; echo; exit \"${2:-0}\"; }\n\ncommand -v git >/dev/null 2>&1 || finish \"git isn't installed. Run 'xcode-select --install' in Terminal, then try again.\" 1\n\ntoken_get() {\n  if [ -n \"$PAPERBOARD_OVERLEAF_TOKEN\" ]; then printf %s \"$PAPERBOARD_OVERLEAF_TOKEN\"; return; fi\n  security find-generic-password -a \"$USER\" -s \"$SERVICE\" -w 2>/dev/null\n}\nTOKEN=\"$(token_get)\"\nif [ -z \"$TOKEN\" ]; then\n  say \"Paste your Overleaf Git authentication token (Overleaf: Account Settings > Git integration),\"\n  say \"then press Return. It goes into your macOS Keychain; you won't be asked again.\"\n  read -r -s TOKEN; echo\n  [ -n \"$TOKEN\" ] || finish \"No token given; nothing changed.\" 1\n  security add-generic-password -U -a \"$USER\" -s \"$SERVICE\" -l \"Paperboard Overleaf token\" -w \"$TOKEN\" >/dev/null || finish \"Couldn't save the token to the Keychain.\" 1\nfi\n\nASKPASS=\"$(mktemp -t paperboard-askpass.XXXXXX)\" || exit 1\ntrap 'rm -f \"$ASKPASS\"' EXIT\nprintf '#!/bin/sh\\ncase \"$1\" in *sername*) echo git ;; *) printf \"%%s\\\\n\" \"$PAPERBOARD_TOKEN\" ;; esac\\n' > \"$ASKPASS\"\nchmod 700 \"$ASKPASS\"\nexport GIT_ASKPASS=\"$ASKPASS\" PAPERBOARD_TOKEN=\"$TOKEN\" GIT_TERMINAL_PROMPT=0\ngit_() { git -c credential.helper= -c core.quotepath=off \"$@\"; }\n\nif [ ! -d \"$REPO/.git\" ]; then\n  say \"Connecting this project to Overleaf.\"\n  say \"Paste the project's Git link (Overleaf: Menu > Integrations > Git), e.g. https://git.overleaf.com/0123456789abcdef01234567\"\n  read -r URL\n  URL=\"$(printf %s \"$URL\" | sed -E 's#^ *git clone +##; s#^(https?://)[^@/]*@#\\1#; s# *$##')\"\n  [ -n \"$URL\" ] || finish \"No link given; nothing changed.\" 1\n  mkdir -p export\n  if [ -e \"$REPO\" ] && [ -n \"$(ls -A \"$REPO\" 2>/dev/null)\" ]; then\n    TMP=\"$REPO.clone-$$\"\n    git_ clone -q \"$URL\" \"$TMP\" || finish \"Couldn't reach that Overleaf project. Check the link and the token (to re-enter the token, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n    mv \"$TMP/.git\" \"$REPO/.git\" && rm -rf \"$TMP\"\n  else\n    git_ clone -q \"$URL\" \"$REPO\" || finish \"Couldn't reach that Overleaf project. Check the link and the token (to re-enter the token, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n  fi\n  git_ -C \"$REPO\" config user.name \"${PAPERBOARD_GIT_NAME:-Paperboard}\"\n  git_ -C \"$REPO\" config user.email \"${PAPERBOARD_GIT_EMAIL:-paperboard@localhost}\"\n  finish \"Connected. Paperboard (open in Chrome) now puts the paper into export/overleaf. Double-click this again to send it to Overleaf.\"\nfi\n\ncd \"$REPO\" || exit 1\nBR=\"$(git_ rev-parse --abbrev-ref HEAD)\"\ngit_ add -A\ngit_ diff --cached --quiet || git_ commit -q -m \"Paperboard $(date '+%Y-%m-%d %H:%M')\"\ngit_ fetch -q origin || finish \"Couldn't reach Overleaf. Check your connection (and the token: to re-enter it, delete 'Paperboard Overleaf' in Keychain Access).\" 1\n\nif ! git_ merge -q --no-edit \"origin/$BR\" >/dev/null 2>&1; then\n  STAMP=\"$(date '+%Y-%m-%d-%H%M%S')\"\n  OUT=\"../overleaf-merge/$STAMP\"\n  mkdir -p \"$OUT\"\n  BASE=\"$(git_ merge-base HEAD \"origin/$BR\")\"\n  for f in $TRIPLES; do\n    git_ show \"$BASE:$f\" > \"$OUT/base-$f\" 2>/dev/null || rm -f \"$OUT/base-$f\"\n    git_ show \"HEAD:$f\" > \"$OUT/ours-$f\" 2>/dev/null || rm -f \"$OUT/ours-$f\"\n    git_ show \"origin/$BR:$f\" > \"$OUT/theirs-$f\" 2>/dev/null || rm -f \"$OUT/theirs-$f\"\n  done\n  git_ merge --abort 2>/dev/null\n  git_ reset -q --hard \"origin/$BR\"\n  finish \"Overleaf and Paperboard both changed the same lines. Paperboard is merging them beat by beat and will ask you where they clash. Then double-click this again to send the result.\"\nfi\n\nAHEAD=\"$(git_ rev-list --count \"origin/$BR..HEAD\")\"\nif [ \"$AHEAD\" != \"0\" ]; then git_ push -q origin \"HEAD:$BR\" || finish \"Overleaf refused the push (someone may have just edited). Double-click again.\" 1; fi\nfinish \"Synced with Overleaf. Sent: $([ \"$AHEAD\" != \"0\" ] && echo yes || echo nothing new). Paperboard is bringing Overleaf's edits into the beats.\"\n";
+
+/* ================= Overleaf: export/overleaf is a git copy of the Overleaf project =================
+   Paperboard keeps the paper written into it (main.tex with the % beat: markers, the template's files, references.bib,
+   the figures). "Sync with Overleaf.command", double-clicked in the project folder, commits that, pulls Overleaf's
+   changes, merges them and pushes. When the pull brings edits, Paperboard merges each beat's edits back into the beat,
+   preamble edits into export/template/main.tex and new references into References/references.bib.
+   export/.overleaf-sent/ holds what Paperboard last wrote, so it can tell Overleaf's edits from its own. */
+const OL_DIR = "export/overleaf", OL_SENT = "export/.overleaf-sent", OL_MERGE = "export/overleaf-merge", SYNC_SCRIPT = "Sync with Overleaf.command";
+const olOpts = () => { meta.overleaf ||= {}; meta.overleaf.done ||= []; return meta.overleaf; };
+let olLast = { stamp: null, merges: "" }, olInfo = { linked: false, imported: null, notes: [] };
+async function olRepo() { const d = await handleAt(OL_DIR, "dir"); if (!d) return null; try { await d.getDirectoryHandle(".git"); return d; } catch (e) { return null; } }
+async function readAt(path) { const f = await fileAt(path); return f ? f.text() : null; }
+async function writeAt(path, content) {   // creates folders as needed; writes only if the content differs
+  const old = await fileAt(path);
+  if (old) {
+    if (typeof content === "string") { if (await old.text() === content) return false; }
+    else if (old.size === content.length) { const a = new Uint8Array(await old.arrayBuffer()); let same = true; for (let i = 0; i < a.length; i++) if (a[i] !== content[i]) { same = false; break; } if (same) return false; }
+  }
+  const h = await handleAt(path, "file", true); if (!h) throw new Error("Can't write " + path);
+  const w = await h.createWritable(); await w.write(content); await w.close(); return true;
+}
+async function olStamp() { const f = await fileAt(OL_DIR + "/main.tex"); return f ? f.lastModified + ":" + f.size : null; }
+
+/* ---------- Paperboard -> export/overleaf ---------- */
+let olTimer = null;
+function olExportSoon() { clearTimeout(olTimer); olTimer = setTimeout(() => { if (root && meta) enqueue("overleaf", olSync).catch(e => console.warn("Overleaf", e)); }, 3000); }
+async function olExport() {
+  if (!(await olRepo())) return;
+  const paper = await assemblePaper();
+  const cur = await readAt(OL_DIR + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
+  if (cur != null && sent != null && !splitPaperTex(cur)) {   // the markers were taken out in Overleaf: don't overwrite their file
+    olInfo.notes = ["Overleaf's main.tex no longer has Paperboard's markers, so Paperboard isn't overwriting it. Restore the markers in Overleaf (its history has them), or move export/overleaf/main.tex aside to start fresh."];
+    renderOverleaf(); return;
+  }
+  await writeAt(OL_DIR + "/main.tex", paper.main); await writeAt(OL_SENT + "/main.tex", paper.main);
+  for (const f of paper.files) {
+    if (f.path === "README.md") continue;
+    await writeAt(OL_DIR + "/" + f.path, f.content);
+    if (f.path === "references.bib") await writeAt(OL_SENT + "/references.bib", f.content);
+  }
+  olLast.stamp = await olStamp();
+}
+
+/* ---------- export/overleaf -> the beats ---------- */
+function bodyFromLatex(p, b, tex) {
+  if (p.type !== "Paragraph") { const head = `\\paragraph{${mdInline(b.title)}.}`; if (tex.startsWith(head)) tex = tex.slice(head.length).replace(/^\n/, ""); }
+  return latexToMd(tex);
+}
+function applyOverleaf(baseTex, theirsTex, notes) {   // merge Overleaf's edits (base -> theirs) into the beats; returns how many beats changed
+  const B = splitPaperTex(baseTex), T = splitPaperTex(theirsTex);
+  if (!B || !T) { notes.push("The Paperboard markers are missing from Overleaf's main.tex, so its edits couldn't be matched to beats."); return 0; }
+  let n = 0;
+  for (const [key, tBlock] of T.blocks) {
+    const bBlock = B.blocks.get(key); if (bBlock === undefined || bBlock === tBlock) continue;
+    const b = beatByKey(key); if (!b) { notes.push(`Overleaf edited text for a beat that no longer exists (${key}); it's in export/overleaf/main.tex.`); continue; }
+    if (conflicts[key]) { notes.push(`“${b.title}” already needs your choice; Overleaf's edit to it waits until the next sync.`); continue; }
+    const p = beatParts(b.text);
+    if (p.type === "Figure" || p.type === "Table") {   // floats aren't rebuilt from LaTeX: keep Overleaf's version in the beat's notes
+      b.text = setPart(b.text, "notes", (p.notes ? p.notes + "\n\n" : "") + `Overleaf edit (${today()}), not applied automatically:\n\n${tBlock}`);
+      applyBeatText(b, b.text); markChanged(key); saveTextSoon(b); n++;
+      notes.push(`Overleaf changed the ${p.type.toLowerCase()} “${b.title}”; its LaTeX is in the beat's Notes.`); continue;
+    }
+    const mine = beatLatex(b, p);
+    let merged;
+    if (mine === bBlock) merged = tBlock;
+    else {
+      const r = merge3(bBlock, mine, tBlock);
+      if (r.conflict) {
+        conflicts[key] = { who: "Overleaf", mine: b.text, theirs: setPart(b.text, "body", bodyFromLatex(p, b, tBlock)), merged: setPart(b.text, "body", r.text) };
+        markChanged(key); paintCard(b); updateConflictBtn(); n++; continue;
+      }
+      merged = r.text;
+    }
+    const nt = setPart(b.text, "body", bodyFromLatex(p, b, merged));
+    if (nt !== b.text) { applyBeatText(b, nt); markChanged(key); saveTextSoon(b); n++; }
+  }
+  for (const key of B.blocks.keys()) if (!T.blocks.has(key) && beatByKey(key)) notes.push(`The “% beat:” line for “${beatByKey(key).title}” was removed in Overleaf, so edits there couldn't be matched. Put the line back in Overleaf.`);
+  for (const [name, t] of T.sections) if (B.sections.has(name) && B.sections.get(name) !== t && !name.startsWith("end: ")) notes.push(`Overleaf changed the heading of “${name}”. Rename sections in Paperboard's Settings.`);
+  return n;
+}
+async function applyTemplateEdits(baseTex, theirsTex, notes) {   // preamble and ending: back into export/template/main.tex
+  const B = splitPaperTex(baseTex), T = splitPaperTex(theirsTex); if (!B || !T || (B.pre === T.pre && B.post === T.post)) return;
+  const tmpl = await readAt(MAIN_TEX);
+  if (tmpl == null) { await writeAt(MAIN_TEX, T.pre + "%% PAPERBOARD BODY" + T.post); notes.push(`Overleaf's preamble is now the template, in ${MAIN_TEX}.`); return; }
+  const m = tmpl.match(BODY_MARK); if (!m) { notes.push(`Overleaf changed the preamble, but ${MAIN_TEX} has no %% PAPERBOARD BODY line to line it up with.`); return; }
+  const tpre = tmpl.slice(0, m.index), tpost = tmpl.slice(m.index + m[0].length);
+  const a = merge3(B.pre, tpre, T.pre), c = merge3(B.post, tpost, T.post);
+  if (a.conflict || c.conflict) { await backupFile("overleaf-template-main.tex", theirsTex); notes.push(`Overleaf and Paperboard both changed the template's preamble; Overleaf's whole file is in Backups. ${MAIN_TEX} is unchanged.`); return; }
+  if (await writeAt(MAIN_TEX, a.text + m[0] + c.text)) notes.push(`Brought Overleaf's preamble changes into ${MAIN_TEX}.`);
+}
+async function applyBibEdits(base, theirs, notes) {
+  if (base == null || theirs == null || base === theirs) return;
+  const mine = await readAt("References/references.bib") ?? "";
+  const r = merge3(base, mine, theirs);
+  if (r.conflict) { await backupFile("overleaf-references.bib", theirs); notes.push("Overleaf and Paperboard both changed the same lines of references.bib; Overleaf's version is in Backups. References/references.bib is unchanged."); return; }
+  if (await writeAt("References/references.bib", r.text)) notes.push("Brought Overleaf's changes to references.bib into References/references.bib.");
+}
+async function backupFile(name, text) { const d = await (await subdir(BACKUP_DIR, true)).getDirectoryHandle("Overleaf", { create: true }); await writeText(d, `${stamp()} ${name}`, text); }
+async function olImport() {
+  if (!(await olRepo())) return;
+  const notes = [], o = olOpts(); let n = 0, saw = false;
+  // 1. a clash the sync script set aside: merge with the real common version
+  for (const dir of await listDirs(OL_MERGE)) {
+    if (o.done.includes(dir)) continue;
+    const at = n => readAt(`${OL_MERGE}/${dir}/${n}`);
+    const base = await at("base-main.tex"), theirs = await at("theirs-main.tex");
+    if (base && theirs) { n += applyOverleaf(base, theirs, notes); await applyTemplateEdits(base, theirs, notes); }
+    await applyBibEdits(await at("base-references.bib"), await at("theirs-references.bib"), notes);
+    o.done.push(dir); saw = true;
+    if (theirs) await writeAt(OL_SENT + "/main.tex", theirs);   // Overleaf's version is now what export/overleaf holds
+    const tb = await at("theirs-references.bib"); if (tb) await writeAt(OL_SENT + "/references.bib", tb);
+  }
+  // 2. edits that came in with a clean pull
+  const cur = await readAt(OL_DIR + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
+  if (cur != null && !splitPaperTex(cur)) {   // a fresh Overleaf project: keep its main.tex, then put the paper in
+    if (!sent) { await backupFile("overleaf-original-main.tex", cur); notes.push("Saved Overleaf's original main.tex in Backups/Overleaf and put the paper in its place."); }
+  } else if (cur != null && sent != null && cur !== sent) {
+    n += applyOverleaf(sent, cur, notes); await applyTemplateEdits(sent, cur, notes); saw = true;
+    await writeAt(OL_SENT + "/main.tex", cur);
+  }
+  const curBib = await readAt(OL_DIR + "/references.bib"), sentBib = await readAt(OL_SENT + "/references.bib");
+  if (curBib != null && sentBib != null && curBib !== sentBib) { await applyBibEdits(sentBib, curBib, notes); await writeAt(OL_SENT + "/references.bib", curBib); saw = true; }
+  if (saw) {
+    saveHl(); saveMetaSoon();
+    olInfo.imported = Date.now(); olInfo.notes = notes;
+    setStatus(n ? `Brought Overleaf's edits into ${plural(n, "beat")}.` : notes.length ? "Synced with Overleaf; see the PDF panel." : "Synced with Overleaf: no edits to bring in.", Object.keys(conflicts).length > 0);
+    renderOverleaf();
+  }
+}
+async function olSync() { await olImport(); await olExport(); }
+async function olPoll() {   // the sync script ran: bring the edits in
+  if (!root || !meta) return;
+  const repo = await olRepo();
+  if (!!repo !== olInfo.linked) { olInfo.linked = !!repo; renderOverleaf(); if (repo) return enqueue("overleaf", olSync); }
+  if (!repo) return;
+  const st = await olStamp(), merges = (await listDirs(OL_MERGE)).join("|");
+  if (st !== olLast.stamp || merges !== olLast.merges) { olLast.merges = merges; await enqueue("overleaf", olSync); olLast.stamp = await olStamp(); }
+}
+
+/* ---------- the Overleaf box in the PDF panel ---------- */
+async function renderOverleaf() {
+  const box = $("x-ol"); if (!box) return;
+  const repo = await olRepo(), script = await fileAt(SYNC_SCRIPT);
+  if (!repo) {
+    box.innerHTML = `<b>Overleaf</b> <span class="help">Not linked.</span> <button class="mini" id="x-olsetup">${script ? "Show how to link" : "Set up sync with Overleaf"}</button><div id="x-olhow" hidden></div>`;
+    $("x-olsetup").onclick = async () => { if (!script) await writeAt(SYNC_SCRIPT, SYNC_SCRIPT_TEXT); showOlHow(); };
+    return;
+  }
+  box.innerHTML = `<b>Overleaf</b> <span class="help">Linked (export/overleaf). To sync, double-click <b>${SYNC_SCRIPT}</b> in the project folder.${olInfo.imported ? ` Last brought edits in ${fmtTime(olInfo.imported)}.` : ""}</span>` +
+    (olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "");
+}
+function showOlHow() {
+  const h = $("x-olhow"); if (!h) return; h.hidden = false;
+  h.innerHTML = `<ol class="olsteps">
+    <li>Paperboard has put <b>${SYNC_SCRIPT}</b> in the project folder. Make it runnable once: ask Claude to (“make Sync with Overleaf.command runnable”), or in Terminal run <code>chmod +x</code> followed by a space and the file dragged into the window.</li>
+    <li>In Overleaf, open the project and copy its Git link (Menu &gt; Integrations &gt; Git), and create a Git token (Account Settings &gt; Git integration).</li>
+    <li>Double-click <b>${SYNC_SCRIPT}</b>. Paste the token and then the link when asked. The token goes into your Mac's Keychain.</li>
+    <li>Double-click it again whenever you want to sync. It sends the paper and brings Overleaf's edits back into the beats.</li></ol>
+    <p class="help">If macOS says it can't be opened because it's from an unidentified developer, right-click it and choose Open the first time.</p>`;
+  renderOverleafLater();
+}
+function renderOverleafLater() { clearTimeout(renderOverleafLater.t); renderOverleafLater.t = setTimeout(async () => { if (await olRepo()) renderOverleaf(); }, 4000); }
 </script>
 </body>
 </html>

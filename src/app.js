@@ -431,7 +431,7 @@ addEventListener("keydown", e => {   // ⌘⌫ marks the selected or open beats 
 
 /* ================= generated files: digest, Claude adjusts, section notes ================= */
 let genTimer = null;
-function writeGeneratedSoon(ms = 1500) { clearTimeout(genTimer); genTimer = setTimeout(() => { if (root && meta) track(writeGenerated()).catch(() => {}); }, ms); }
+function writeGeneratedSoon(ms = 1500) { clearTimeout(genTimer); genTimer = setTimeout(() => { if (root && meta) track(writeGenerated()).catch(() => {}); }, ms); olExportSoon(); }
 const genLast = {};
 const STAMP_RE = /^_(Generated|Rebuilt) by the storyboard [^\n]*_\n\n/m;
 const stripStamp = t => t.replace(STAMP_RE, "");
@@ -1275,16 +1275,17 @@ function diffMarks(text, other) {   // show the lines that differ between the tw
 }
 function showConflict(b) {
   const c = conflicts[b.key]; if (!c) return;
+  const who = c.who || "Claude";
   activeKey = b.key; setPanelMode(null); panel.classList.add("conflictp"); writeOpen(b.file);
-  panel.innerHTML = `<header><div><div class="eyebrow">You and Claude changed the same lines</div><h2>${esc(b.title)}</h2></div><button class="x" aria-label="Close">✕</button></header>
-    <p class="help">Everything else merged on its own. Keep one version, or edit the combined text: the clashing lines sit between the <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> markers. Nothing is written to the beat until you choose. Until then the file holds Claude's version, and the one you don't keep is saved in Backups/Conflicts.</p>
-    <div class="cols"><div><span class="lbl">Your version</span><pre>${diffMarks(c.mine, c.theirs)}</pre></div><div><span class="lbl">Claude's version</span><pre>${diffMarks(c.theirs, c.mine)}</pre></div></div>
+  panel.innerHTML = `<header><div><div class="eyebrow">You and ${esc(who)} changed the same lines</div><h2>${esc(b.title)}</h2></div><button class="x" aria-label="Close">✕</button></header>
+    <p class="help">Everything else merged on its own. Keep one version, or edit the combined text: the clashing lines sit between the <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> and <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> markers. Nothing is written to the beat until you choose. ${who === "Claude" ? "Until then the file holds Claude's version, and the" : "The"} one you don't keep is saved in Backups/Conflicts.</p>
+    <div class="cols"><div><span class="lbl">Your version</span><pre>${diffMarks(c.mine, c.theirs)}</pre></div><div><span class="lbl">${esc(who)}'s version</span><pre>${diffMarks(c.theirs, c.mine)}</pre></div></div>
     <label for="cf-text">Combined</label><textarea id="cf-text" spellcheck="false">${esc(c.merged)}</textarea>
-    <div class="btnrow"><button id="cf-mine">Keep mine</button><button id="cf-theirs">Keep Claude's</button><button id="cf-save" class="primary">Save combined text</button></div>`;
+    <div class="btnrow"><button id="cf-mine">Keep mine</button><button id="cf-theirs">Keep ${esc(who)}'s</button><button id="cf-save" class="primary">Save combined text</button></div>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   const done = async (text, label) => {
     try {
-      if (label !== "theirs") await backupConflict(b, "Claude's version", c.theirs);
+      if (label !== "theirs") await backupConflict(b, `${who}'s version`, c.theirs);
       if (label !== "mine") await backupConflict(b, "your version", c.mine);
     } catch (e) { return setStatus("Couldn't save the backup copy, so nothing was changed: " + e.message, true); }
     delete conflicts[b.key]; updateConflictBtn();
@@ -1304,7 +1305,7 @@ function showConflict(b) {
     panel.querySelectorAll(".conflictp pre").forEach(pre => { const m = pre.querySelector("mark"); if (m) pre.scrollTop = Math.max(0, m.offsetTop - pre.offsetTop - 30); });
     const ta = $("cf-text"), i = ta.value.indexOf(MARK_MINE); if (i >= 0) { const line = ta.value.slice(0, i).split("\n").length; ta.scrollTop = Math.max(0, (line - 3) * parseFloat(getComputedStyle(ta).lineHeight)); }
   });
-  setStatus(`“${b.title}”: you and Claude changed the same lines. Choose a version.`, true);
+  setStatus(`“${b.title}”: you and ${who} changed the same lines. Choose a version.`, true);
 }
 
 /* which beat is open, so Claude can leave it alone */
@@ -1327,6 +1328,7 @@ async function poll(force) {
     let go = force === true || f !== flagSeen || missingOnce.size > 0 || Date.now() - lastFull > 15000;
     if (!go) { try { const m = (await (await root.getFileHandle(BOARD)).getFile()).lastModified; if (m !== metaMtime) go = true; } catch (e) {} }
     if (go) { flagSeen = f; lastFull = Date.now(); await syncFromDisk(); await scanLinked(false); await pollCode(); }
+    await olPoll();
   } catch (e) { console.warn("refresh failed", e); }
   finally { polling = false; }
 }

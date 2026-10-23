@@ -152,4 +152,23 @@ t("blocks: lists, quotes, images, tables, environments, display math", () => {
 t("figure paths and \\input files are found for the compile", () => {
   assert.deepStrictEqual(C.latexAssets("\\includegraphics[width=1cm]{figures/a.pdf} \\input{tables/t.tex}"), ["figures/a.pdf", "tables/t.tex"]);
 });
+t("the generated paper splits back into its beats, sections and template", () => {
+  const tex = "\\documentclass{article}\n\\begin{document}\n" + C.BODY_START + "\n% section: Abstract\n\\begin{abstract}\n% beat: Summary (b-a)\nShort summary.\n% end: Abstract\n\\end{abstract}\n\n% section: Intro\n\\section{Intro}\n\n% beat: First (b-1)\nPara one.\n\n% beat: Empty one (b-2) (empty)\n\n% beat: Fig (b-3)\n\\begin{figure}x\\end{figure}\n" + C.BODY_END + "\n\\end{document}\n";
+  const s = C.splitPaperTex(tex);
+  assert.strictEqual(s.blocks.get("b-a"), "Short summary.");
+  assert.strictEqual(s.blocks.get("b-1"), "Para one.");
+  assert.strictEqual(s.blocks.get("b-2"), "");
+  assert.strictEqual(s.blocks.get("b-3"), "\\begin{figure}x\\end{figure}");
+  assert.strictEqual(s.pre, "\\documentclass{article}\n\\begin{document}\n");
+  assert.strictEqual(s.post, "\n\\end{document}\n");
+  assert.strictEqual(C.splitPaperTex("no markers"), null);
+});
+t("LaTeX edited in Overleaf comes back as Markdown when it can, LaTeX when it can't", () => {
+  for (const md of ["Urban **air** is *often* measured [@a; @b], as @c show (see @fig:x); 30% & more.", "Text with `code_x` and \"quotes\" and [see @a, p. 3]."]) {
+    const tex = C.mdToLatex(md); assert.strictEqual(C.latexToMd(tex), md);
+    const edited = tex.replace("measured", "measured hourly"), back = C.latexToMd(edited); assert.strictEqual(C.mdToLatex(back), edited);
+  }
+  const raw = "We use \\SI{3}{\\micro\\gram} and \\cite{a} directly.";
+  assert.strictEqual(C.mdToLatex(C.latexToMd(raw)), raw);
+});
 console.log(`${n - fail}/${n} tests passed`); process.exit(fail ? 1 : 0);

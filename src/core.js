@@ -376,6 +376,42 @@ function latexAssets(tex) {
   return [...out];
 }
 
+/* ---------- the generated paper, split back into its beats (for edits made in Overleaf) ---------- */
+const beatTagId = line => { const m = line.match(/^% beat: .* \(([^()]+)\) \(empty\)\s*$/) || line.match(/^% beat: .* \(([^()]+)\)\s*$/); return m ? m[1] : null; };
+const BODY_START = "% ---- PAPERBOARD BODY START ----", BODY_END = "% ---- PAPERBOARD BODY END ----";
+function splitPaperTex(tex) {   // {pre, post, blocks: Map(key -> latex), sections: Map(name -> latex), order}, or null without markers
+  tex = String(tex ?? "").replace(/\r/g, "");
+  const a = tex.indexOf(BODY_START), b = tex.indexOf(BODY_END);
+  if (a < 0 || b < a) return null;
+  const pre = tex.slice(0, a), post = tex.slice(b + BODY_END.length), body = tex.slice(a + BODY_START.length, b);
+  const blocks = new Map(), sections = new Map(), order = []; let cur = null, buf = [];
+  const close = () => { if (!cur) return; const t = buf.join("\n").replace(/^\n+|\s+$/g, ""); (cur.kind === "beat" ? blocks : sections).set(cur.id, t); order.push(cur); buf = []; };
+  for (const line of body.split("\n")) {
+    let m;
+    if ((m = line.match(/^% beat: .* \(([^()]+)\) \(empty\)\s*$/) || line.match(/^% beat: .* \(([^()]+)\)\s*$/))) { close(); cur = { kind: "beat", id: m[1] }; continue; }
+    if ((m = line.match(/^% section: (.*)$/))) { close(); cur = { kind: "section", id: m[1].trim() }; continue; }
+    if ((m = line.match(/^% end: (.*)$/))) { close(); cur = { kind: "section", id: "end: " + m[1].trim() }; continue; }
+    if (cur) buf.push(line);
+  }
+  close();
+  return { pre, post, blocks, sections, order };
+}
+/* LaTeX back to Markdown, only where it converts forward again to exactly the same LaTeX; otherwise the LaTeX itself (beats accept it) */
+function latexToMd(tex) {
+  const t = String(tex ?? "");
+  let md = t
+    .replace(/\\textbf\{([^{}]*)\}/g, "**$1**").replace(/\\(?:emph|textit)\{([^{}]*)\}/g, "*$1*")
+    .replace(/\\texttt\{([^{}]*)\}/g, (m, c) => "`" + c.replace(/\\([&%#_{}$])/g, "$1").replace(/\\textbackslash\{\}/g, "\\") + "`")
+    .replace(/\\citep\[([^\]]*)\]\[([^\]]*)\]\{([^}]+)\}/g, (m, pre, post, keys) => "[" + keys.split(",").map((k, i, a) => (i === 0 && pre ? pre + " " : "") + "@" + k.trim() + (i === a.length - 1 && post ? ", " + post : "")).join("; ") + "]")
+    .replace(/\\citep\[([^\]]*)\]\{([^}]+)\}/g, (m, post, keys) => "[" + keys.split(",").map((k, i, a) => "@" + k.trim() + (i === a.length - 1 && post ? ", " + post : "")).join("; ") + "]")
+    .replace(/\\citep\{([^}]+)\}/g, (m, keys) => "[" + keys.split(",").map(k => "@" + k.trim()).join("; ") + "]")
+    .replace(/\\citet\{([^},]+)\}/g, "@$1")
+    .replace(/(^|[\s(])\\ref\{((?:fig|tab|sec|eq|lst|app|alg):[^}]+)\}/g, "$1@$2")
+    .replace(/``([^`']*)''/g, '"$1"')
+    .replace(/\\([&%#_])/g, "$1");
+  return mdToLatex(md) === t ? md : t;
+}
+
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, slugify, latexAssets };
+  mdToLatex, mdInline, texEscape, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END };

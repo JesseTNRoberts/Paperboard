@@ -404,6 +404,67 @@ with sync_playwright() as p:
         page.keyboard.press("Escape")
     else:
         print("SKIP compile tests (set ACL_DIR to the acl-style-files folder)")
+    # ---------- 13. Overleaf: export/overleaf is the git copy; edits there come back into the beats ----------
+    page.click("#pdfbtn"); page.wait_for_selector("#x-ol")
+    page.wait_for_function("() => /Not linked/.test(document.getElementById('x-ol').textContent)")
+    page.click("#x-olsetup"); page.wait_for_timeout(500)
+    script = ev("() => T.read('sample/Sync with Overleaf.command')")
+    check("Set up writes the sync script into the project folder", script.startswith("#!/bin/bash") and "security find-generic-password" in script and page.is_visible("#x-olhow"))
+    page.keyboard.press("Escape")
+    # what the script's first run leaves: a git checkout of a fresh Overleaf project
+    ev("""async () => { await T.write('sample/export/overleaf/.git/HEAD', 'ref: refs/heads/master\\n'); await T.write('sample/export/overleaf/main.tex', '\\\\documentclass{article}\\n\\\\begin{document}\\nOverleaf starter\\n\\\\end{document}\\n'); }""")
+    def wait_file(path, cond_js, ms=15000):
+        for _ in range(ms // 300):
+            if ev("async () => { try { const t = await T.read('" + path + "'); return !!(" + cond_js + "); } catch (e) { return false; } }"): return True
+            page.wait_for_timeout(300)
+        return False
+    ok = wait_file("sample/export/overleaf/main.tex", "t.includes('PAPERBOARD BODY START')")
+    check("linking: the paper replaces Overleaf's starter file, which is kept in Backups", ok and any("overleaf-original-main.tex" in x for x in ev("() => T.ls('sample/Backups/Overleaf')")))
+    ol = ev("() => T.ls('sample/export/overleaf')")
+    check("linking: template files, references.bib and figures go into export/overleaf", all(x in ol for x in ["references.bib", "figures/"]) and "calibration_error.pdf" in ev("() => T.ls('sample/export/overleaf/figures')"), ol)
+    # a co-author edits in Overleaf; the script pulls it in (clean merge)
+    ev("""async () => {
+      const p = 'sample/export/overleaf/main.tex'; let t = await T.read(p);
+      t = t.replace('regulatory monitors per city', 'regulatory monitors per city (often fewer than ten)').replace('\\\\usepackage{amsmath}', '\\\\usepackage{amsmath}\\n\\\\usepackage{xcolor}');
+      await T.write(p, t);
+      const b = 'sample/export/overleaf/references.bib'; await T.write(b, (await T.read(b)) + '\\n@misc{newkey2026, title = {Added in Overleaf}, year = {2026}}\\n'); }""")
+    ok = False
+    for _ in range(40):
+        body = [x for x in ev("() => storyboard.state().beats") if x["key"] == "b-intro1"][0]["text"]
+        if "often fewer than ten" in body: ok = True; break
+        page.wait_for_timeout(300)
+    check("an edit made in Overleaf comes back into its beat, as Markdown", ok and "(often fewer than ten) [@epa2023]" in body, body[-400:])
+    page.wait_for_timeout(1500)
+    check("…and is saved to the beat file", "(often fewer than ten) [@epa2023]" in ev("() => T.read('sample/Beats/Opening problem statement.md')"))
+    check("…and the card is highlighted", "b-intro1" in ev("() => storyboard.state().hl"))
+    check("a preamble edit in Overleaf goes into export/template/main.tex", "\\usepackage{xcolor}" in ev("() => T.read('sample/export/template/main.tex')"))
+    check("a reference added in Overleaf goes into References/references.bib", "newkey2026" in ev("() => T.read('sample/References/references.bib')"))
+    # a clash: the script sets the three versions aside and takes Overleaf's; Paperboard asks
+    ev("""async () => {
+      const sent = await T.read('sample/export/.overleaf-sent/main.tex');
+      const theirs = sent.replace('Third, the dataset and code, released openly.', 'Third, the dataset, released under CC-BY.');
+      await T.write('sample/Beats/Contributions.md', (await T.read('sample/Beats/Contributions.md')).replace('Third, the dataset and code, released openly.', 'Third, our dataset and code, released openly on Zenodo.'));
+      await storyboard.poll(); await new Promise(r => setTimeout(r, 1500));
+      const d = 'sample/export/overleaf-merge/2026-10-23-120000/';
+      await T.write(d + 'base-main.tex', sent); await T.write(d + 'ours-main.tex', sent); await T.write(d + 'theirs-main.tex', theirs);
+      await T.write('sample/export/overleaf/main.tex', theirs); }""")
+    ok = False
+    for _ in range(40):
+        if "b-intro2" in ev("() => storyboard.state().conflicts"): ok = True; break
+        page.wait_for_timeout(300)
+    check("a clash with Overleaf shows Needs your choice on that beat", ok and "conflict" in (page.get_attribute('.card[data-key="b-intro2"]', "class") or ""))
+    page.click('.card[data-key="b-intro2"]'); page.wait_for_selector(".panel.conflictp")
+    check("the clash view names Overleaf", "you and overleaf changed the same lines" in page.inner_text("#panel").lower() and page.inner_text("#cf-theirs") == "Keep Overleaf's", page.inner_text("#panel")[:200])
+    page.click("#cf-theirs"); page.wait_for_timeout(1500)
+    check("Keep Overleaf's writes Overleaf's text into the beat", "released under CC-BY" in ev("() => T.read('sample/Beats/Contributions.md')"))
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(4500)
+    check("the next sync sends the merged paper back to export/overleaf", "released under CC-BY" in ev("() => T.read('sample/export/overleaf/main.tex')"))
+    # an edit to a figure float in Overleaf is kept in the beat's notes, not applied
+    ev("""async () => { const p = 'sample/export/overleaf/main.tex'; await T.write(p, (await T.read(p)).replace('[width=\\\\linewidth]{figures/calibration_error.pdf}', '[width=0.8\\\\linewidth]{figures/calibration_error.pdf}')); }""")
+    ok = wait_file("sample/Beats/Figure 1 calibration error.md", "t.includes('Overleaf edit') && t.includes('0.8')")
+    check("a figure edited in Overleaf: its LaTeX goes into the beat's Notes", ok)
+
     check("no script errors", not errors, errors)
 
     # ---------- dark screenshots ----------

@@ -45,22 +45,25 @@ function floatTex(b, p, kind) {   // a Figure or Table beat as a float
   const cap = long ? `  \\caption${short && short !== long ? `[${short}]` : ""}{${long}}\n` : "";
   return kind === "table" ? `\\begin{${env}}[t]\n  \\centering\n${cap}${inner}\n  \\label{${label}}\n\\end{${env}}` : `\\begin{${env}}[t]\n  \\centering\n${inner}\n${cap}  \\label{${label}}\n\\end{${env}}`;
 }
+function beatLatex(b, p = beatParts(b.text)) {   // one beat's LaTeX ("" for an empty beat)
+  if (p.type === "Figure") return floatTex(b, p, "figure");
+  if (p.type === "Table") return floatTex(b, p, "table");
+  if (!p.body.trim()) return "";
+  if (p.type === "Paragraph") return mdToLatex(p.body);
+  return `\\paragraph{${mdInline(b.title)}.}\n` + mdToLatex(p.body);
+}
+const beatIncluded = p => !(INCLUDABLE.includes(p.type) && !latexOpts().include[p.type]);
 function buildBody() {
-  const o = latexOpts(), parts = [];
+  const parts = [];
   docOrder().forEach(({ act, beats: list }) => {
     const isAbstract = /^abstract$/i.test(act.name.trim());
     const chunk = [];
     list.forEach(b => {
-      const p = beatParts(b.text);
-      if (INCLUDABLE.includes(p.type) && !o.include[p.type]) return;
-      const tag = `% beat: ${b.title.replace(/\n/g, " ")} (${b.key})`;
-      if (p.type === "Figure") chunk.push(tag + "\n" + floatTex(b, p, "figure"));
-      else if (p.type === "Table") chunk.push(tag + "\n" + floatTex(b, p, "table"));
-      else if (!p.body.trim()) chunk.push(tag + " (empty)");
-      else if (p.type === "Paragraph") chunk.push(tag + "\n" + mdToLatex(p.body));
-      else chunk.push(tag + `\n\\paragraph{${mdInline(b.title)}.}\n` + mdToLatex(p.body));
+      const p = beatParts(b.text); if (!beatIncluded(p)) return;
+      const tag = `% beat: ${b.title.replace(/\n/g, " ")} (${b.key})`, tex = beatLatex(b, p);
+      chunk.push(tex ? tag + "\n" + tex : tag + " (empty)");
     });
-    if (isAbstract) { if (chunk.length) parts.push(`\\begin{abstract}\n${chunk.join("\n\n")}\n\\end{abstract}`); }
+    if (isAbstract) { if (chunk.length) parts.push(`% section: ${act.name}\n\\begin{abstract}\n${chunk.join("\n\n")}\n% end: ${act.name}\n\\end{abstract}`); }
     else parts.push(`% section: ${act.name}\n\\section{${mdInline(act.name)}}\n\\label{sec:${slugify(act.name)}}\n\n${chunk.join("\n\n")}`);
   });
   return `% Written by Paperboard from the beats, in document order. Edit the beats, not this file.\n\n${parts.join("\n\n")}\n`;
@@ -79,12 +82,12 @@ async function assemblePaper() {
   const tmplFile = await fileAt(MAIN_TEX), bib = await fileAt("References/references.bib");
   let main = tmplFile ? await tmplFile.text() : DEFAULT_TEMPLATE(root.name, !!bib && /\\cite|\\citep|\\citet/.test(body));
   const notes = [];
-  if (BODY_MARK.test(main)) main = main.replace(BODY_MARK, () => "% ---- PAPERBOARD BODY START ----\n" + body + "% ---- PAPERBOARD BODY END ----");
-  else if (BODY_INPUT.test(main)) main = main.replace(BODY_INPUT, () => "% ---- PAPERBOARD BODY START ----\n" + body + "% ---- PAPERBOARD BODY END ----");
+  if (BODY_MARK.test(main)) main = main.replace(BODY_MARK, () => BODY_START + "\n" + body + BODY_END);
+  else if (BODY_INPUT.test(main)) main = main.replace(BODY_INPUT, () => BODY_START + "\n" + body + BODY_END);
   else {
     const at = main.search(/\\bibliography\s*\{|\\printbibliography|\\end\{document\}/);
     if (at < 0) throw new Error(`${MAIN_TEX} has no \\end{document}.`);
-    main = main.slice(0, at) + "% ---- PAPERBOARD BODY START ----\n" + body + "% ---- PAPERBOARD BODY END ----\n" + main.slice(at);
+    main = main.slice(0, at) + BODY_START + "\n" + body + BODY_END + "\n" + main.slice(at);
     notes.push(`${MAIN_TEX} has no “%% PAPERBOARD BODY” line, so the paper went in before the bibliography. Add that line where the paper belongs.`);
   }
   const files = [];   // template files (except main.tex), at the top level as the template expects
@@ -131,7 +134,7 @@ function texErrors(log, main) {   // "! …" errors with the line they point at,
     for (let j = i + 1; j < Math.min(lines.length, i + 12); j++) { const m = lines[j].match(/^l\.(\d+)\s?(.*)$/); if (m) { ln = +m[1]; ctx = m[2]; break; } }
     let beat = null, section = null;
     if (ln) for (let k = Math.min(ln, mainLines.length) - 1; k >= 0; k--) {
-      const bm = mainLines[k].match(/^% beat: .* \(([^()]+)\)( \(empty\))?$/); if (bm && !beat) { beat = bm[1]; break; }
+      const id = beatTagId(mainLines[k]); if (id) { beat = id; break; }
       if (/^% ---- PAPERBOARD BODY START/.test(mainLines[k])) break;
     }
     const msg = lines[i].replace(/^!\s*/, ""), miss = msg.match(/File `([^']+)' not found/);
@@ -151,6 +154,7 @@ function showPdfPanel() {
       <span class="grow"></span><a id="x-open" href="#" target="_blank" rel="noopener" hidden>Open in a new tab</a>
     </div>
     <p class="help" id="x-tmpl"></p>
+    <div class="olbox" id="x-ol"></div>
     <div id="x-status" class="xstatus" role="status"></div>
     <div id="x-errs"></div>
     <div class="pdfview" id="x-view"><div class="empty">${canCompile() ? "Compile to see the paper." : "Compiling needs the online app (https://jessetnroberts.com/Paperboard/) in Chrome or Edge. Claude can also compile export/paper.tex for you."}</div></div>`;
@@ -160,6 +164,7 @@ function showPdfPanel() {
   $("x-compile").onclick = compilePaper;
   (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>. Output: <code>export/paper.pdf</code>, with <code>export/paper.tex</code> and <code>export/paper.log</code>.` : `No conference template yet, so a plain article is used. Ask Claude to set up the conference's official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
   if (lastCompile) renderCompile(lastCompile);
+  renderOverleaf();
 }
 function setX(t, err) { const s = $("x-status"); if (s) { s.textContent = t; s.classList.toggle("err", !!err); } }
 async function compilePaper() {

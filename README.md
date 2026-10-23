@@ -17,6 +17,17 @@ The project itself lives in a folder of plain files on your computer. Claude (in
 - **Missing packages.** A few less common packages aren't in the in-browser TeX. The app names any it can't find; compile `export/paper.tex` with a full TeX Live instead:
   `TEXINPUTS=export/template//: BIBINPUTS=References: BSTINPUTS=export/template: latexmk -pdf -outdir=export export/paper.tex`
 
+## Syncing with Overleaf (premium, Git integration)
+
+`export/overleaf/` is a git checkout of your Overleaf project, and Paperboard keeps the paper written into it: `main.tex` with `% beat:` markers, the template's files, `references.bib` and the figures. In the PDF panel, **Set up sync with Overleaf** puts `Sync with Overleaf.command` in the project folder. Make it runnable once (`chmod +x`), then double-click it to sync.
+
+- **First run.** It asks for your Overleaf Git token, which goes into the macOS Keychain under "Paperboard Overleaf", and for the project's Git link.
+- **Each run.** It commits Paperboard's version, pulls Overleaf's changes, merges them, and pushes.
+- **Back into the beats.** Paperboard (open in Chrome) merges Overleaf's edits back into the beats it can match by marker. Preamble edits go to `export/template/main.tex`, and new references to `References/references.bib`. Edits to figure or table floats are kept in that beat's Notes.
+- **Clashes.** If both sides changed the same lines, the script sets the three versions aside in `export/overleaf-merge/` and takes Overleaf's. Paperboard merges them beat by beat and shows "Needs your choice" where they clash. Double-click again to send the result.
+
+`test/sync_script_test.sh` tests the script against a local stand-in for Overleaf.
+
 ## What's in a project folder
 
 ```
@@ -59,7 +70,7 @@ The app round-trips this byte for byte: editing one part changes nothing else. I
 ## This repository
 
 - `index.html`: the app, one self-contained file. Built from `src/` by `build.sh` (just concatenation).
-- `src/`: `head.html` (styles and markup), `core.js` (beat format, merging, cursor mapping, Markdown to LaTeX), `app.js` (board, editor, files, live refresh), `research.js` (beat types, figures, code, dependencies), `latex.js` (assembling and compiling the paper).
+- `src/`: `head.html` (styles and markup), `core.js` (beat format, merging, cursor mapping, Markdown to LaTeX), `app.js` (board, editor, files, live refresh), `research.js` (beat types, figures, code, dependencies), `latex.js` (assembling and compiling the paper), `overleaf.js` and `sync-with-overleaf.command` (the Overleaf round trip).
 - `vendor/`: texlyre-busytex (AGPL-3.0) and its TeX Live data. `texlive-recommended.data` is split into parts under 100 MB for GitHub; the loader joins them (marked `PAPERBOARD PATCH`).
 - `sample/`: a small demo paper project. **Its numbers are synthetic demo data.**
 - `test/`: `node test/core.test.js src/core.js sample/Beats` (format and merge tests); `test/browser_test.py <url> sample <outdir>` (headless Chromium with Playwright, using the browser's private file system as the project folder, playing Claude against the open app). Set `ACL_DIR` to a copy of https://github.com/acl-org/acl-style-files to include the compile tests, and `MARKED_JS` to a local `marked@12.0.2` if the CDN is out of reach.
