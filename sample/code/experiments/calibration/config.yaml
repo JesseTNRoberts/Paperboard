@@ -1,0 +1,5 @@
+seed: 20261012
+sensors: 12
+reference_monitors: 2
+holdout_weeks: 2
+humidity_bands: [0-40, 40-60, 60-80, 80-100]

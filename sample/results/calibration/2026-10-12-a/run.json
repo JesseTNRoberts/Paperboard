@@ -1,0 +1,15 @@
+{
+  "run_id": "2026-10-12-a",
+  "date": "2026-10-12",
+  "config": {
+    "seed": 20261012,
+    "bands": [
+      "0-40",
+      "40-60",
+      "60-80",
+      "80-100"
+    ]
+  },
+  "command": "make calibration",
+  "note": "synthetic demo data"
+}

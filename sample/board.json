@@ -1,0 +1,183 @@
+{
+ "version": 1,
+ "template": "paper",
+ "acts": [
+  {
+   "id": "s1",
+   "name": "Abstract",
+   "x": 0
+  },
+  {
+   "id": "s2",
+   "name": "Introduction",
+   "x": 1088
+  },
+  {
+   "id": "s3",
+   "name": "Related Work",
+   "x": 2176
+  },
+  {
+   "id": "s4",
+   "name": "Methods",
+   "x": 3264
+  },
+  {
+   "id": "s5",
+   "name": "Results",
+   "x": 4352
+  },
+  {
+   "id": "s6",
+   "name": "Discussion",
+   "x": 5440
+  },
+  {
+   "id": "s7",
+   "name": "Conclusion",
+   "x": 6528
+  }
+ ],
+ "lanes": [
+  {
+   "id": "l1",
+   "name": "Argument",
+   "color": "#2b6e8f"
+  },
+  {
+   "id": "l2",
+   "name": "Experiments",
+   "color": "#b5651d"
+  },
+  {
+   "id": "l3",
+   "name": "Figures & tables",
+   "color": "#7d4d92"
+  },
+  {
+   "id": "l4",
+   "name": "Literature",
+   "color": "#4f8a48"
+  },
+  {
+   "id": "l5",
+   "name": "Risks & limitations",
+   "color": "#b02a4a"
+  }
+ ],
+ "tags": [
+  {
+   "id": "drafted",
+   "name": "Drafted",
+   "color": "#2b6e8f"
+  },
+  {
+   "id": "needs-citation",
+   "name": "Needs citation",
+   "color": "#b5651d"
+  },
+  {
+   "id": "needs-data",
+   "name": "Needs data",
+   "color": "#a5832a"
+  },
+  {
+   "id": "figure-stale",
+   "name": "Figure stale",
+   "color": "#7d4d92"
+  },
+  {
+   "id": "reviewer-flagged",
+   "name": "Reviewer flagged",
+   "color": "#b02a4a"
+  },
+  {
+   "id": "done",
+   "name": "Done",
+   "color": "#4f8a48"
+  }
+ ],
+ "beats": {
+  "b-intro1": {
+   "x": 1128,
+   "y": 155,
+   "tags": [
+    "drafted"
+   ]
+  },
+  "b-intro2": {
+   "x": 1390,
+   "y": 155,
+   "tags": [
+    "reviewer-flagged"
+   ]
+  },
+  "b-ref1": {
+   "x": 2216,
+   "y": 875,
+   "tags": [
+    "needs-citation"
+   ]
+  },
+  "b-exp1": {
+   "x": 3304,
+   "y": 395,
+   "tags": []
+  },
+  "b-fig1": {
+   "x": 4392,
+   "y": 635,
+   "tags": [
+    "needs-data"
+   ]
+  },
+  "b-res1": {
+   "x": 4654,
+   "y": 155,
+   "tags": []
+  },
+  "b-disc1": {
+   "x": 5480,
+   "y": 1115,
+   "tags": []
+  }
+ },
+ "notes": [
+  {
+   "id": "n1",
+   "x": 40,
+   "y": 635,
+   "text": "Abstract last, once Results settle.",
+   "color": ""
+  }
+ ],
+ "links": [
+  {
+   "id": "a1",
+   "from": "b-exp1",
+   "to": "b-fig1",
+   "label": "produces"
+  },
+  {
+   "id": "a2",
+   "from": "b-fig1",
+   "to": "b-res1",
+   "label": "discussed in"
+  },
+  {
+   "id": "a3",
+   "from": "b-ref1",
+   "to": "b-intro1",
+   "label": "cited by"
+  }
+ ],
+ "trash": {
+  "b-old1": {
+   "x": 40,
+   "y": 155,
+   "tags": []
+  }
+ },
+ "sectionNotes": {},
+ "textScale": 1
+}

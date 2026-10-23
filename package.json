@@ -1,0 +1,10 @@
+{
+  "name": "paperboard",
+  "private": true,
+  "description": "A storyboard for papers and grants. The app is index.html; nothing here is needed to run it.",
+  "scripts": {
+    "build": "sh build.sh",
+    "test": "node test/core.test.js src/core.js sample/Beats"
+  },
+  "devDependencies": { "marked": "12.0.2" }
+}
