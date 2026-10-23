@@ -2692,7 +2692,7 @@ $("olbtn").onclick = () => { if (meta) showOverleafPanel(); };
 const OL_DEFAULT = "export/overleaf", OL_SENT = "export/.overleaf-sent";
 const olDir = () => relPath(meta?.overleaf?.dir) || OL_DEFAULT;   // the folder in the project that is your git clone of the Overleaf project
 const shq = s => `"${String(s).replace(/(["\\$`])/g, "\\$1")}"`;
-const olFirstCmd = url => `cd ${shq(olDir())} && git init -q && git checkout -q -B master && git add -A && (git commit -qm "Paperboard" || true) && (git remote add origin ${shq(url)} 2>/dev/null || git remote set-url origin ${shq(url)}) && (git pull -q --no-rebase --no-edit --allow-unrelated-histories -X ours origin master 2>/dev/null || true) && git push -u origin master; cd - >/dev/null`;
+const olFirstCmd = url => `cd ${shq(olDir())} && git init -q && git checkout -q -B main && git add -A && (git commit -qm "Paperboard" || true) && (git remote add origin ${shq(url)} 2>/dev/null || git remote set-url origin ${shq(url)}) && (git pull -q --no-rebase --no-edit --allow-unrelated-histories -X ours origin main 2>/dev/null || true) && git push -u origin main; cd - >/dev/null`;   // Overleaf only accepts the branch "main"
 const olSyncCmd = () => `cd ${shq(olDir())} && git add -A && (git commit -qm "Paperboard" || true) && git -c merge.conflictStyle=diff3 pull --no-rebase --no-edit && git push; cd - >/dev/null`;
 const olOpts = () => { meta.overleaf ||= {}; return meta.overleaf; };
 let olLast = { stamp: null }, olInfo = { linked: false, imported: null, notes: [], waiting: false, handled: null, noBase: false };

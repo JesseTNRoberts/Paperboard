@@ -15,30 +15,31 @@ FIRST="$(printf '%s\n' "$CMDS" | sed -n 1p)"; SYNC="$(printf '%s\n' "$CMDS" | se
 first() { eval "${FIRST//URL_HERE/$1}"; }
 pass=0; fail=0; ok() { if eval "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1"; fi; }
 cd "$T"
+overleaf_like() { mkdir -p "$1/hooks"; printf '#!/bin/sh\nwhile read old new ref; do [ "$ref" = refs/heads/main ] || { echo "error: wrong branch"; exit 1; }; done\n' > "$1/hooks/pre-receive"; chmod +x "$1/hooks/pre-receive"; }
 # (a) a truly empty Overleaf project
-git init -q --bare empty.git; git --git-dir=empty.git symbolic-ref HEAD refs/heads/master
+git init -q --bare empty.git; git --git-dir=empty.git symbolic-ref HEAD refs/heads/main; overleaf_like empty.git
 mkdir pa; cd pa; mkdir -p export/overleaf; printf 'PAPER\n' > export/overleaf/main.tex; printf '@misc{a}\n' > export/overleaf/references.bib
 first "$T/empty.git" >/dev/null 2>&1
-ok "first push into an empty Overleaf project sends the paper" '[ "$(git --git-dir=../empty.git show master:main.tex)" = PAPER ] && git --git-dir=../empty.git show master:references.bib >/dev/null 2>&1'
+ok "first push into an empty Overleaf project sends the paper" '[ "$(git --git-dir=../empty.git show main:main.tex)" = PAPER ] && git --git-dir=../empty.git show main:references.bib >/dev/null 2>&1'
 ok "…and comes back to the project folder" '[ -d export ]'
 cd ..
 # (b) an "empty" project that Overleaf gave a starter main.tex; this is the one the rest of the tests use
-git init -q --bare overleaf.git; git --git-dir=overleaf.git symbolic-ref HEAD refs/heads/master
-git clone -q overleaf.git coauthor 2>/dev/null; (cd coauthor && printf 'starter\n' > main.tex && git add -A && git commit -qm init && git push -q origin HEAD:master 2>/dev/null)
+git init -q --bare overleaf.git; git --git-dir=overleaf.git symbolic-ref HEAD refs/heads/main; overleaf_like overleaf.git
+git clone -q overleaf.git coauthor 2>/dev/null; (cd coauthor && printf 'starter\n' > main.tex && git add -A && git commit -qm init && git push -q origin HEAD:main 2>/dev/null)
 mkdir proj; cd proj; mkdir -p export/overleaf; printf 'A\nB\nC\nD\n' > export/overleaf/main.tex
 first "$T/overleaf.git" >/dev/null 2>&1
-ok "first push over Overleaf's starter main.tex: Paperboard's version wins" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A\nB\nC\nD")" ]'
+ok "first push over Overleaf's starter main.tex: Paperboard's version wins" '[ "$(git --git-dir=../overleaf.git show main:main.tex)" = "$(printf "A\nB\nC\nD")" ]'
 first "$T/overleaf.git" >/dev/null 2>&1
-ok "running the first-push command twice does no harm" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A\nB\nC\nD")" ] && [ -z "$(git -C export/overleaf status --porcelain)" ]'
-(cd ../coauthor && git pull -q --no-rebase origin master 2>/dev/null && sed -i.bak "s/^A$/A overleaf/" main.tex && rm -f main.tex.bak && git commit -qam e && git push -q origin HEAD:master 2>/dev/null)
+ok "running the first-push command twice does no harm" '[ "$(git --git-dir=../overleaf.git show main:main.tex)" = "$(printf "A\nB\nC\nD")" ] && [ -z "$(git -C export/overleaf status --porcelain)" ]'
+(cd ../coauthor && git pull -q --no-rebase origin main 2>/dev/null && sed -i.bak "s/^A$/A overleaf/" main.tex && rm -f main.tex.bak && git commit -qam e && git push -q origin HEAD:main 2>/dev/null)
 sed -i.bak 's/^D$/D paperboard/' export/overleaf/main.tex; rm -f export/overleaf/main.tex.bak; eval "$SYNC" >/dev/null 2>&1
-ok "edits on both sides in different lines merge and go to Overleaf" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A overleaf\nB\nC\nD paperboard")" ]'
-(cd ../coauthor && git pull -q origin master 2>/dev/null && sed -i.bak "s/^B$/B coauthor/" main.tex && rm -f main.tex.bak && git commit -qam e2 && git push -q origin HEAD:master 2>/dev/null)
+ok "edits on both sides in different lines merge and go to Overleaf" '[ "$(git --git-dir=../overleaf.git show main:main.tex)" = "$(printf "A overleaf\nB\nC\nD paperboard")" ]'
+(cd ../coauthor && git pull -q origin main 2>/dev/null && sed -i.bak "s/^B$/B coauthor/" main.tex && rm -f main.tex.bak && git commit -qam e2 && git push -q origin HEAD:main 2>/dev/null)
 sed -i.bak 's/^B$/B me/' export/overleaf/main.tex; rm -f export/overleaf/main.tex.bak; eval "$SYNC" >/dev/null 2>&1
-ok "a clash leaves diff3 conflict markers and pushes nothing" 'grep -q "^|||||||" export/overleaf/main.tex && ! git --git-dir=../overleaf.git show master:main.tex | grep -q "B me"'
+ok "a clash leaves diff3 conflict markers and pushes nothing" 'grep -q "^|||||||" export/overleaf/main.tex && ! git --git-dir=../overleaf.git show main:main.tex | grep -q "B me"'
 SIDES="$(node -e 'const C = require(process.argv[1]); const g = C.gitConflictSides(require("fs").readFileSync(process.argv[2], "utf8")); console.log(JSON.stringify(g));' "$ROOT/src/core.js" export/overleaf/main.tex)"
 ok "Paperboard reads the common, its own and Overleaf's version from the markers" 'node -e "const g = JSON.parse(process.argv[1]); process.exit(g.conflict && g.hasBase && g.base === \"A overleaf\nB\nC\nD paperboard\n\" && g.ours === \"A overleaf\nB me\nC\nD paperboard\n\" && g.theirs === \"A overleaf\nB coauthor\nC\nD paperboard\n\" ? 0 : 1)" "$SIDES"'
 printf 'A overleaf\nB me and coauthor\nC\nD paperboard\n' > export/overleaf/main.tex   # what Paperboard writes after merging the beats
 eval "$SYNC" >/dev/null 2>&1
-ok "running the same command again sends the resolved version" '[ "$(git --git-dir=../overleaf.git show master:main.tex)" = "$(printf "A overleaf\nB me and coauthor\nC\nD paperboard")" ]'
+ok "running the same command again sends the resolved version" '[ "$(git --git-dir=../overleaf.git show main:main.tex)" = "$(printf "A overleaf\nB me and coauthor\nC\nD paperboard")" ]'
 echo "$pass passed, $fail failed"; [ "$fail" = 0 ]
