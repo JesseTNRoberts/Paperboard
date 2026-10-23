@@ -35,6 +35,7 @@ function olExportSoon() { clearTimeout(olTimer); olTimer = setTimeout(() => { if
 async function olExport() {
   if (!(await olActive())) return;
   const paper = await assemblePaper();
+  if (J(paper.notes) !== J(olInfo.paperNotes || [])) { olInfo.paperNotes = paper.notes; renderOverleaf(); }
   const cur = await readAt(olDir() + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
   if (cur != null && hasGitConflict(cur) && (olInfo.noBase || olClashes().length)) return;   // wait: git's conflict isn't merged yet, or you're still choosing
   if (cur != null && sent != null && !splitPaperTex(cur)) {   // the markers were taken out in Overleaf: don't overwrite their file
@@ -88,7 +89,9 @@ function applyOverleaf(baseTex, theirsTex, notes) {   // merge Overleaf's edits 
   return n;
 }
 async function applyTemplateEdits(baseTex, theirsTex, notes) {   // preamble and ending: back into export/template/main.tex
-  const B = splitPaperTex(baseTex), T = splitPaperTex(theirsTex); if (!B || !T || (B.pre === T.pre && B.post === T.post)) return;
+  const B = splitPaperTex(baseTex), T = splitPaperTex(theirsTex); if (!B || !T) return;
+  B.pre = stripUnicodePreamble(B.pre); T.pre = stripUnicodePreamble(T.pre);   // Paperboard's own block isn't part of the template
+  if (B.pre === T.pre && B.post === T.post) return;
   const tmpl = await readAt(MAIN_TEX);
   if (tmpl == null) { await writeAt(MAIN_TEX, T.pre + "%% PAPERBOARD BODY" + T.post); notes.push(`Overleaf's preamble is now the template, in ${MAIN_TEX}.`); return; }
   const m = tmpl.match(BODY_MARK); if (!m) { notes.push(`Overleaf changed the preamble, but ${MAIN_TEX} has no %% PAPERBOARD BODY line to line it up with.`); return; }
@@ -165,7 +168,8 @@ function wireCopy(box) {
 async function renderOverleaf() {
   const box = $("x-ol"); if (!box) return;
   const repo = await olRepo(), o = olOpts();
-  const notes = olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "";
+  const all = [...olInfo.notes, ...(olInfo.paperNotes || [])];
+  const notes = all.length ? `<div class="warn">${all.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "";
   const term = `In Terminal, type <code>cd </code> (with a space), drag the <b>${esc(root.name)}</b> folder into the window and press Return; then paste this and press Return:`;
   if (!repo && !o.on) {   // 1. not started
     box.innerHTML = `<b>Overleaf</b> <span class="help">Paperboard writes the paper as LaTeX into a folder in the project, and you push that folder to Overleaf with git.</span>

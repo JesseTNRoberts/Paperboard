@@ -277,8 +277,30 @@ const UNI_TEX = { "µ": "\\textmu{}", "μ": "\\ensuremath{\\mu}", "°": "\\textd
   "θ": "\\ensuremath{\\theta}", "κ": "\\ensuremath{\\kappa}", "λ": "\\ensuremath{\\lambda}", "ν": "\\ensuremath{\\nu}", "ξ": "\\ensuremath{\\xi}", "π": "\\ensuremath{\\pi}", "ρ": "\\ensuremath{\\rho}",
   "σ": "\\ensuremath{\\sigma}", "τ": "\\ensuremath{\\tau}", "φ": "\\ensuremath{\\phi}", "χ": "\\ensuremath{\\chi}", "ψ": "\\ensuremath{\\psi}", "ω": "\\ensuremath{\\omega}",
   "Γ": "\\ensuremath{\\Gamma}", "Δ": "\\ensuremath{\\Delta}", "Θ": "\\ensuremath{\\Theta}", "Λ": "\\ensuremath{\\Lambda}", "Π": "\\ensuremath{\\Pi}", "Σ": "\\ensuremath{\\Sigma}", "Φ": "\\ensuremath{\\Phi}", "Ψ": "\\ensuremath{\\Psi}", "Ω": "\\ensuremath{\\Omega}" };
+Object.assign(UNI_TEX, { "′": "\\ensuremath{'}", "″": "\\ensuremath{''}", "≡": "\\ensuremath{\\equiv}", "∗": "\\ensuremath{\\ast}", "∂": "\\ensuremath{\\partial}", "∇": "\\ensuremath{\\nabla}", "∫": "\\ensuremath{\\int}", "∏": "\\ensuremath{\\prod}",
+  "≪": "\\ensuremath{\\ll}", "≫": "\\ensuremath{\\gg}", "⊂": "\\ensuremath{\\subset}", "⊆": "\\ensuremath{\\subseteq}", "∪": "\\ensuremath{\\cup}", "∩": "\\ensuremath{\\cap}", "∅": "\\ensuremath{\\emptyset}",
+  "∉": "\\ensuremath{\\notin}", "¬": "\\ensuremath{\\neg}", "∧": "\\ensuremath{\\wedge}", "∨": "\\ensuremath{\\vee}", "⊕": "\\ensuremath{\\oplus}", "⊗": "\\ensuremath{\\otimes}", "↑": "\\ensuremath{\\uparrow}", "↓": "\\ensuremath{\\downarrow}",
+  "⇔": "\\ensuremath{\\Leftrightarrow}", "⇐": "\\ensuremath{\\Leftarrow}", "∓": "\\ensuremath{\\mp}", "⋯": "\\ensuremath{\\cdots}", "ℓ": "\\ensuremath{\\ell}", "ℝ": "\\ensuremath{\\mathbb{R}}",
+  "ϵ": "\\ensuremath{\\epsilon}", "ϑ": "\\ensuremath{\\vartheta}", "ϕ": "\\ensuremath{\\phi}", "ς": "\\ensuremath{\\varsigma}", "ι": "\\ensuremath{\\iota}", "υ": "\\ensuremath{\\upsilon}", "Ξ": "\\ensuremath{\\Xi}", "Υ": "\\ensuremath{\\Upsilon}",
+  "⁻": "\\textsuperscript{-}", "⁰": "\\textsuperscript{0}", "⁴": "\\textsuperscript{4}", "⁵": "\\textsuperscript{5}", "⁶": "\\textsuperscript{6}", "⁷": "\\textsuperscript{7}", "⁸": "\\textsuperscript{8}", "⁹": "\\textsuperscript{9}",
+  "₀": "\\textsubscript{0}", "₁": "\\textsubscript{1}", "₄": "\\textsubscript{4}", "₅": "\\textsubscript{5}", "₆": "\\textsubscript{6}", "₇": "\\textsubscript{7}", "₈": "\\textsubscript{8}", "₉": "\\textsubscript{9}", "ₓ": "\\textsubscript{x}" });
+delete UNI_TEX["ℝ"];   // needs amssymb, which not every template loads
 const UNI_RE = new RegExp("[" + Object.keys(UNI_TEX).join("") + "]", "g");
-const uniToTex = s => s.replace(UNI_RE, c => UNI_TEX[c]);
+/* one-way: these have no single way back, so Overleaf edits don't turn every hyphen into a non-breaking one */
+const UNI_ONEWAY = { "\u2011": "-", "\u2009": "\\,", "\u202F": "\\,", "\u200B": "{}", "\uFEFF": "{}", "\u2060": "{}" };
+const UNI_ONEWAY_RE = new RegExp("[" + Object.keys(UNI_ONEWAY).join("") + "]", "g");
+/* the same table as a preamble block, so pdfLaTeX also knows these characters inside math, in references.bib and in
+   the template's own text. It only acts under pdfLaTeX (XeLaTeX and LuaLaTeX handle Unicode themselves). */
+const UNI_BLOCK_START = "% ---- PAPERBOARD UNICODE START (written by Paperboard) ----", UNI_BLOCK_END = "% ---- PAPERBOARD UNICODE END ----";
+function unicodePreamble() {
+  const decl = Object.entries({ ...UNI_TEX, ...UNI_ONEWAY }).map(([c, tex]) => `\\DeclareUnicodeCharacter{${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}}{${tex}}`);
+  return [UNI_BLOCK_START, "\\ifdefined\\Umathchar\\else\\ifdefined\\DeclareUnicodeCharacter", ...decl, "\\fi\\fi", UNI_BLOCK_END].join("\n");
+}
+const stripUnicodePreamble = t => String(t).replace(new RegExp("\\n?" + UNI_BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + UNI_BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\n?"), "\n");
+/* characters pdfLaTeX may still not know: beyond Latin, not in the table, not the usual typographic ones */
+const PDFTEX_SAFE = /[\u0000-ɏ–—‘’‚“”„†‡•…‰‹›€™ -ÿ]/;
+function unknownChars(t) { const out = new Map(); for (const c of String(t)) if (!PDFTEX_SAFE.test(c) && !(c in UNI_TEX) && !(c in UNI_ONEWAY)) out.set(c, (out.get(c) || 0) + 1); return out; }
+const uniToTex = s => s.replace(UNI_ONEWAY_RE, c => UNI_ONEWAY[c]).replace(UNI_RE, c => UNI_TEX[c]);
 const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
 function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
   const items = inner.split(";").map(x => x.trim()).filter(Boolean).map(x => { const m = x.match(/^(.*?)-?@([\w:.\-\/+]+)(.*)$/); return m ? { pre: m[1].trim(), key: m[2], post: m[3].replace(/^\s*,\s*/, "").trim() } : null; });
@@ -314,10 +336,11 @@ function mdInline(src) {
   s = s.replace(/\[([^\[\]]*@[\w:.\-\/+][^\[\]]*)\]/g, (m, inner) => { const c = citeCmd(inner); return c ? hold(c) : m; });
   s = s.replace(/(^|[\s(])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
   // 3. links, emphasis, quotes
-  s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? m : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
+  s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? "" : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
   s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "\uE000$1\uE001").replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, "$1\uE000$2\uE001");
   s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
   s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
+  s = s.replace(/(^|[\s(\[])~(?=[\d.+\-])/g, (m, pre) => pre + hold("\\ensuremath{\\sim}"));   // "~1e-6" means approximately
   // 4. escape what's left, then put the kept pieces back
   s = uniToTex(texEscape(s)).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
   return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
@@ -441,4 +464,4 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
+  mdToLatex, mdInline, texEscape, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };

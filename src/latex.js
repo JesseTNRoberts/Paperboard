@@ -5,25 +5,39 @@
    It goes into the conference template at export/template/main.tex, at the line "%% PAPERBOARD BODY" (or where it says
    \input{paperboard-body}); without a template, a plain article is used. Overleaf compiles it (see overleaf.js). */
 const TEMPLATE_DIR = "export/template", MAIN_TEX = TEMPLATE_DIR + "/main.tex", BODY_MARK = /^[ \t]*%%[ \t]*PAPERBOARD[ \t]+BODY.*$/m, BODY_INPUT = /\\input\s*\{\s*paperboard-body(?:\.tex)?\s*\}/;
+/* the default is the *ACL (ACL/ARR) review template. Its style files come from the official repository
+   (github.com/acl-org/acl-style-files) the first time they're needed, into export/template/. */
 const DEFAULT_TEMPLATE = (title, hasBib) => `\\documentclass[11pt]{article}
-\\usepackage[utf8]{inputenc}
+% Paperboard's default: the *ACL review format. For the camera-ready version, change [review]{acl} to {acl}.
+\\usepackage[review]{acl}
+\\usepackage{times}
+\\usepackage{latexsym}
 \\usepackage[T1]{fontenc}
-\\usepackage{lmodern}
+\\usepackage[utf8]{inputenc}
 \\usepackage{microtype}
-\\usepackage[margin=1in]{geometry}
-\\usepackage{amsmath,amssymb}
+\\usepackage{inconsolata}
 \\usepackage{graphicx}
+\\usepackage{amsmath,amssymb}
 \\usepackage{booktabs}
-\\usepackage[authoryear,round]{natbib}
-\\usepackage{hyperref}
 \\title{${texEscape(title)}}
-\\author{}
-\\date{\\today}
+\\author{Anonymous}
 \\begin{document}
 \\maketitle
 %% PAPERBOARD BODY
-${hasBib ? "\\bibliographystyle{plainnat}\n\\bibliography{references}\n" : ""}\\end{document}
+${hasBib ? "\\bibliography{references}\n" : ""}\\end{document}
 `;
+const ACL_FILES = ["acl.sty", "acl_natbib.bst"], ACL_RAW = "https://raw.githubusercontent.com/acl-org/acl-style-files/master/";
+const aclTried = {};
+async function ensureAclStyle(main, notes) {   // a template that uses {acl} gets the official style files if they're missing
+  if (!/\\usepackage\s*(\[[^\]]*\])?\s*\{acl\}/.test(main)) return;
+  for (const f of ACL_FILES) {
+    if (await fileAt(TEMPLATE_DIR + "/" + f)) continue;
+    if (aclTried[f]) { if (aclTried[f] !== true) notes.push(aclTried[f]); continue; }   // one try per session
+    aclTried[f] = true;
+    try { const r = await fetch(ACL_RAW + f); if (!r.ok) throw new Error(r.status); await writeAt(TEMPLATE_DIR + "/" + f, await r.text()); }
+    catch (e) { notes.push(aclTried[f] = `Couldn't download ${f} from the ACL style repository (${e.message || e}). Put it in ${TEMPLATE_DIR}/ by hand.`); }
+  }
+}
 const latexOpts = () => { meta.latex ||= {}; meta.latex.include ||= {}; return meta.latex; };
 const INCLUDABLE = ["Experiment", "References", "Note"];   // left out unless you tick them
 
@@ -32,7 +46,8 @@ function floatTex(b, p, kind) {   // a Figure or Table beat as a float
   const outs = listField(p.fields.output).map(relPath).filter(Boolean);
   const label = (p.fields.label || "").trim() || `${kind === "figure" ? "fig" : "tab"}:${slugify(b.title)}`;
   const env = /^(yes|true|full|wide)$/i.test(p.fields.wide || "") ? kind + "*" : kind;
-  const short = p.fields.caption ? mdInline(p.fields.caption) : "", long = p.body.trim() ? mdInline(p.body.trim().replace(/\n+/g, " ")) : short;
+  const capText = p.body.replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim().replace(/^(\*\*|__)?(Figure|Fig\.|Table)\s+[A-Z]?\d+[.:]?(\*\*|__)?[.:]?\s*/i, "").replace(/\n+/g, " ").trim();
+  const short = p.fields.caption ? mdInline(p.fields.caption) : "", long = capText ? mdInline(capText) : short;
   let inner;
   if (kind === "figure") {
     const pick = outs.find(o => /\.pdf$/i.test(o)) || outs.find(o => /\.(png|jpe?g)$/i.test(o)) || outs[0];
@@ -79,8 +94,10 @@ async function assemblePaper() {
   let body = buildBody();
   for (const m of [...body.matchAll(/^  %%CSV:(.+)%%$/gm)]) body = body.replace(m[0], (await csvTable(m[1])).replace(/^/gm, "  "));
   const tmplFile = await fileAt(MAIN_TEX), bib = await fileAt("References/references.bib");
-  let main = tmplFile ? await tmplFile.text() : DEFAULT_TEMPLATE(root.name, !!bib && /\\cite|\\citep|\\citet/.test(body));
   const notes = [];
+  if (!tmplFile) await writeAt(MAIN_TEX, DEFAULT_TEMPLATE(root.name, !!bib));   // the ACL default, written out so you can edit title and authors
+  let main = await readAt(MAIN_TEX);
+  await ensureAclStyle(main, notes);
   if (BODY_MARK.test(main)) main = main.replace(BODY_MARK, () => BODY_START + "\n" + body + BODY_END);
   else if (BODY_INPUT.test(main)) main = main.replace(BODY_INPUT, () => BODY_START + "\n" + body + BODY_END);
   else {
@@ -89,6 +106,9 @@ async function assemblePaper() {
     main = main.slice(0, at) + BODY_START + "\n" + body + BODY_END + "\n" + main.slice(at);
     notes.push(`${MAIN_TEX} has no “%% PAPERBOARD BODY” line, so the paper went in before the bibliography. Add that line where the paper belongs.`);
   }
+  // teach pdfLaTeX the characters it doesn't know by default, wherever they appear (math, references.bib, the template)
+  const bd = main.search(/^[ \t]*\\begin\{document\}/m);
+  if (bd >= 0) main = main.slice(0, bd) + unicodePreamble() + "\n" + main.slice(bd);
   const files = [];   // template files (except main.tex), at the top level as the template expects
   const tdir = await handleAt(TEMPLATE_DIR, "dir");
   if (tdir) for (const f of await listFiles(TEMPLATE_DIR, 4)) { if (f.path === MAIN_TEX) continue; files.push({ path: f.path.slice(TEMPLATE_DIR.length + 1), content: new Uint8Array(await (await fileAt(f.path)).arrayBuffer()) }); }
@@ -102,7 +122,12 @@ async function assemblePaper() {
     if (!found && !files.some(f => f.path === rp || f.path.startsWith(rp + "."))) missing.push(a);
   }
   if (missing.length) notes.push(`Not found in the project: ${missing.join(", ")}.`);
-  return { main, body, files, notes, template: tmplFile ? MAIN_TEX : null };
+  const odd = unknownChars(main.replace(unicodePreamble(), "") + (bib ? await bib.text() : ""));   // anything pdfLaTeX may still reject
+  if (odd.size) {
+    const where = [...odd.keys()].map(c => { const b = beats.find(x => x.text.includes(c)); return `“${c}” (U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")})${b ? ` in “${b.title}”` : ""}`; });
+    notes.push(`pdfLaTeX may not know these characters: ${where.join(", ")}. Replace them, or set Overleaf's compiler to XeLaTeX or LuaLaTeX (Menu > Settings > Compiler).`);
+  }
+  return { main, body, files, notes, template: MAIN_TEX };
 }
 
 /* ---------- the Overleaf panel: template, what to include, and the sync ---------- */
@@ -116,7 +141,7 @@ function showOverleafPanel() {
     <div class="olbox" id="x-ol"></div>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   panel.querySelectorAll("[data-inc]").forEach(c => c.onchange = () => { latexOpts().include[c.dataset.inc] = c.checked; saveMetaSoon(); });
-  (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>.` : `No conference template yet, so a plain article is used. Ask Claude to set up the conference's official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
+  (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>.` : `No template yet: the ACL review template will be written to <code>${MAIN_TEX}</code> with the next export. For another venue, ask Claude to put its official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
   renderOverleaf();
 }
 $("olbtn").onclick = () => { if (meta) showOverleafPanel(); };

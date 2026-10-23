@@ -177,4 +177,20 @@ t("symbols pdfLaTeX can't take directly are converted, and come back from Overle
   assert.strictEqual(C.latexToMd(tex), md);
   assert.strictEqual(C.mdToLatex("inside math $α ≥ 1$ stays"), "inside math $α ≥ 1$ stays");
 });
+t("pdfLaTeX learns the extra characters from a preamble block, which comes off again cleanly", () => {
+  const block = C.unicodePreamble();
+  assert.ok(block.includes("\\DeclareUnicodeCharacter{2078}{\\textsuperscript{8}}"), "superscript 8");
+  assert.ok(block.includes("\\ifdefined\\Umathchar\\else"), "skipped by XeLaTeX and LuaLaTeX");
+  const pre = "\\documentclass{article}\n\\usepackage{acl}\n";
+  assert.strictEqual(C.stripUnicodePreamble(pre + block + "\n\\begin{document}"), pre + "\\begin{document}");
+  assert.deepStrictEqual([...C.unknownChars("café — 2⁸ ✓ 漢").keys()], ["✓", "漢"]);
+});
+t("captions and approximate values", () => {
+  assert.strictEqual(C.mdInline("see ![alt](../figures/x.png) here"), "see  here");
+  assert.strictEqual(C.mdInline("exact to ~1e-15 in float64"), "exact to \\ensuremath{\\sim}1e-15 in float64");
+  assert.strictEqual(C.mdInline("Figure~\\ref{fig:a}"), "Figure~\\ref{fig:a}");
+  assert.strictEqual(C.mdInline("all 2⁸ = 256 paths"), "all 2\\textsuperscript{8} = 256 paths");
+  assert.strictEqual(C.mdInline("a 14\u2011month run"), "a 14-month run");
+  assert.strictEqual(C.latexToMd("a 14-month run, CC-BY"), "a 14-month run, CC-BY");
+});
 console.log(`${n - fail}/${n} tests passed`); process.exit(fail ? 1 : 0);

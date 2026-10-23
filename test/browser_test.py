@@ -405,6 +405,8 @@ with sync_playwright() as p:
     check("…and is saved to the beat file", "(often fewer than ten) [@epa2023]" in ev("() => T.read('sample/Beats/Opening problem statement.md')"))
     check("…and the card is highlighted", "b-intro1" in ev("() => storyboard.state().hl"))
     check("a preamble edit in Overleaf goes into export/template/main.tex", "\\usepackage{xcolor}" in ev("() => T.read('sample/export/template/main.tex')"))
+    check("main.tex for Overleaf teaches pdfLaTeX the extra characters", "PAPERBOARD UNICODE START" in ev("() => T.read('sample/export/overleaf/main.tex')") and "DeclareUnicodeCharacter{2078}" in ev("() => T.read('sample/export/overleaf/main.tex')"))
+    check("that block never goes back into the template", "PAPERBOARD UNICODE" not in ev("() => T.read('sample/export/template/main.tex')"))
     check("a reference added in Overleaf goes into References/references.bib", "newkey2026" in ev("() => T.read('sample/References/references.bib')"))
     # a clash: git pull stops with diff3 conflict markers in main.tex; Paperboard reads the three versions and asks
     ev("""async () => {
@@ -424,7 +426,7 @@ with sync_playwright() as p:
     page.click('.card[data-key="b-intro2"]'); page.wait_for_selector(".panel.conflictp")
     check("the clash view names Overleaf", "you and overleaf changed the same lines" in page.inner_text("#panel").lower() and page.inner_text("#cf-theirs") == "Keep Overleaf's", page.inner_text("#panel")[:200])
     page.click("#cf-theirs"); page.wait_for_timeout(1500)
-    check("Keep Overleaf's writes Overleaf's text into the beat", "released under CC-BY" in ev("() => T.read('sample/Beats/Contributions.md')"))
+    _c = ev("() => T.read('sample/Beats/Contributions.md')"); check("Keep Overleaf's writes Overleaf's text into the beat", "released under CC-BY" in _c, _c[-600:] + " WHO " + str(ev("() => storyboard.state().conflicts")))
     page.keyboard.press("Escape")
     page.wait_for_timeout(4500)
     page.wait_for_timeout(1000)

@@ -641,8 +641,30 @@ const UNI_TEX = { "µ": "\\textmu{}", "μ": "\\ensuremath{\\mu}", "°": "\\textd
   "θ": "\\ensuremath{\\theta}", "κ": "\\ensuremath{\\kappa}", "λ": "\\ensuremath{\\lambda}", "ν": "\\ensuremath{\\nu}", "ξ": "\\ensuremath{\\xi}", "π": "\\ensuremath{\\pi}", "ρ": "\\ensuremath{\\rho}",
   "σ": "\\ensuremath{\\sigma}", "τ": "\\ensuremath{\\tau}", "φ": "\\ensuremath{\\phi}", "χ": "\\ensuremath{\\chi}", "ψ": "\\ensuremath{\\psi}", "ω": "\\ensuremath{\\omega}",
   "Γ": "\\ensuremath{\\Gamma}", "Δ": "\\ensuremath{\\Delta}", "Θ": "\\ensuremath{\\Theta}", "Λ": "\\ensuremath{\\Lambda}", "Π": "\\ensuremath{\\Pi}", "Σ": "\\ensuremath{\\Sigma}", "Φ": "\\ensuremath{\\Phi}", "Ψ": "\\ensuremath{\\Psi}", "Ω": "\\ensuremath{\\Omega}" };
+Object.assign(UNI_TEX, { "′": "\\ensuremath{'}", "″": "\\ensuremath{''}", "≡": "\\ensuremath{\\equiv}", "∗": "\\ensuremath{\\ast}", "∂": "\\ensuremath{\\partial}", "∇": "\\ensuremath{\\nabla}", "∫": "\\ensuremath{\\int}", "∏": "\\ensuremath{\\prod}",
+  "≪": "\\ensuremath{\\ll}", "≫": "\\ensuremath{\\gg}", "⊂": "\\ensuremath{\\subset}", "⊆": "\\ensuremath{\\subseteq}", "∪": "\\ensuremath{\\cup}", "∩": "\\ensuremath{\\cap}", "∅": "\\ensuremath{\\emptyset}",
+  "∉": "\\ensuremath{\\notin}", "¬": "\\ensuremath{\\neg}", "∧": "\\ensuremath{\\wedge}", "∨": "\\ensuremath{\\vee}", "⊕": "\\ensuremath{\\oplus}", "⊗": "\\ensuremath{\\otimes}", "↑": "\\ensuremath{\\uparrow}", "↓": "\\ensuremath{\\downarrow}",
+  "⇔": "\\ensuremath{\\Leftrightarrow}", "⇐": "\\ensuremath{\\Leftarrow}", "∓": "\\ensuremath{\\mp}", "⋯": "\\ensuremath{\\cdots}", "ℓ": "\\ensuremath{\\ell}", "ℝ": "\\ensuremath{\\mathbb{R}}",
+  "ϵ": "\\ensuremath{\\epsilon}", "ϑ": "\\ensuremath{\\vartheta}", "ϕ": "\\ensuremath{\\phi}", "ς": "\\ensuremath{\\varsigma}", "ι": "\\ensuremath{\\iota}", "υ": "\\ensuremath{\\upsilon}", "Ξ": "\\ensuremath{\\Xi}", "Υ": "\\ensuremath{\\Upsilon}",
+  "⁻": "\\textsuperscript{-}", "⁰": "\\textsuperscript{0}", "⁴": "\\textsuperscript{4}", "⁵": "\\textsuperscript{5}", "⁶": "\\textsuperscript{6}", "⁷": "\\textsuperscript{7}", "⁸": "\\textsuperscript{8}", "⁹": "\\textsuperscript{9}",
+  "₀": "\\textsubscript{0}", "₁": "\\textsubscript{1}", "₄": "\\textsubscript{4}", "₅": "\\textsubscript{5}", "₆": "\\textsubscript{6}", "₇": "\\textsubscript{7}", "₈": "\\textsubscript{8}", "₉": "\\textsubscript{9}", "ₓ": "\\textsubscript{x}" });
+delete UNI_TEX["ℝ"];   // needs amssymb, which not every template loads
 const UNI_RE = new RegExp("[" + Object.keys(UNI_TEX).join("") + "]", "g");
-const uniToTex = s => s.replace(UNI_RE, c => UNI_TEX[c]);
+/* one-way: these have no single way back, so Overleaf edits don't turn every hyphen into a non-breaking one */
+const UNI_ONEWAY = { "\u2011": "-", "\u2009": "\\,", "\u202F": "\\,", "\u200B": "{}", "\uFEFF": "{}", "\u2060": "{}" };
+const UNI_ONEWAY_RE = new RegExp("[" + Object.keys(UNI_ONEWAY).join("") + "]", "g");
+/* the same table as a preamble block, so pdfLaTeX also knows these characters inside math, in references.bib and in
+   the template's own text. It only acts under pdfLaTeX (XeLaTeX and LuaLaTeX handle Unicode themselves). */
+const UNI_BLOCK_START = "% ---- PAPERBOARD UNICODE START (written by Paperboard) ----", UNI_BLOCK_END = "% ---- PAPERBOARD UNICODE END ----";
+function unicodePreamble() {
+  const decl = Object.entries({ ...UNI_TEX, ...UNI_ONEWAY }).map(([c, tex]) => `\\DeclareUnicodeCharacter{${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}}{${tex}}`);
+  return [UNI_BLOCK_START, "\\ifdefined\\Umathchar\\else\\ifdefined\\DeclareUnicodeCharacter", ...decl, "\\fi\\fi", UNI_BLOCK_END].join("\n");
+}
+const stripUnicodePreamble = t => String(t).replace(new RegExp("\\n?" + UNI_BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + UNI_BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\n?"), "\n");
+/* characters pdfLaTeX may still not know: beyond Latin, not in the table, not the usual typographic ones */
+const PDFTEX_SAFE = /[\u0000-ɏ–—‘’‚“”„†‡•…‰‹›€™ -ÿ]/;
+function unknownChars(t) { const out = new Map(); for (const c of String(t)) if (!PDFTEX_SAFE.test(c) && !(c in UNI_TEX) && !(c in UNI_ONEWAY)) out.set(c, (out.get(c) || 0) + 1); return out; }
+const uniToTex = s => s.replace(UNI_ONEWAY_RE, c => UNI_ONEWAY[c]).replace(UNI_RE, c => UNI_TEX[c]);
 const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
 function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
   const items = inner.split(";").map(x => x.trim()).filter(Boolean).map(x => { const m = x.match(/^(.*?)-?@([\w:.\-\/+]+)(.*)$/); return m ? { pre: m[1].trim(), key: m[2], post: m[3].replace(/^\s*,\s*/, "").trim() } : null; });
@@ -678,10 +700,11 @@ function mdInline(src) {
   s = s.replace(/\[([^\[\]]*@[\w:.\-\/+][^\[\]]*)\]/g, (m, inner) => { const c = citeCmd(inner); return c ? hold(c) : m; });
   s = s.replace(/(^|[\s(])@([A-Za-z][\w:.\-\/+]*[\w])/g, (m, pre, key) => pre + hold(REF_PREFIX.test(key) ? `\\ref{${key}}` : `\\citet{${key}}`));
   // 3. links, emphasis, quotes
-  s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? m : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
+  s = s.replace(/!?\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, text, url) => m.startsWith("!") ? "" : hold(`\\href{${url.replace(/[%#]/g, c => "\\" + c)}}{`) + text + hold("}"));
   s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "\uE000$1\uE001").replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, "$1\uE000$2\uE001");
   s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1\uE002$2\uE003").replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, "$1\uE002$2\uE003");
   s = s.replace(/(^|[\s(\[\u2014-])"(?=\S)([^"]*?\S)"/g, "$1\uE004$2\uE005");
+  s = s.replace(/(^|[\s(\[])~(?=[\d.+\-])/g, (m, pre) => pre + hold("\\ensuremath{\\sim}"));   // "~1e-6" means approximately
   // 4. escape what's left, then put the kept pieces back
   s = uniToTex(texEscape(s)).replace(/\uE000/g, "\\textbf{").replace(/\uE001/g, "}").replace(/\uE002/g, "\\emph{").replace(/\uE003/g, "}").replace(/\uE004/g, "``").replace(/\uE005/g, "''");
   return s.replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]).replace(/\u0000(\d+)\u0000/g, (m, n) => keep[+n]);
@@ -805,7 +828,7 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, uniToTex, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
+  mdToLatex, mdInline, texEscape, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
 </script>
 <script>
 "use strict";
@@ -2565,25 +2588,39 @@ function showCodeConflict() {
    It goes into the conference template at export/template/main.tex, at the line "%% PAPERBOARD BODY" (or where it says
    \input{paperboard-body}); without a template, a plain article is used. Overleaf compiles it (see overleaf.js). */
 const TEMPLATE_DIR = "export/template", MAIN_TEX = TEMPLATE_DIR + "/main.tex", BODY_MARK = /^[ \t]*%%[ \t]*PAPERBOARD[ \t]+BODY.*$/m, BODY_INPUT = /\\input\s*\{\s*paperboard-body(?:\.tex)?\s*\}/;
+/* the default is the *ACL (ACL/ARR) review template. Its style files come from the official repository
+   (github.com/acl-org/acl-style-files) the first time they're needed, into export/template/. */
 const DEFAULT_TEMPLATE = (title, hasBib) => `\\documentclass[11pt]{article}
-\\usepackage[utf8]{inputenc}
+% Paperboard's default: the *ACL review format. For the camera-ready version, change [review]{acl} to {acl}.
+\\usepackage[review]{acl}
+\\usepackage{times}
+\\usepackage{latexsym}
 \\usepackage[T1]{fontenc}
-\\usepackage{lmodern}
+\\usepackage[utf8]{inputenc}
 \\usepackage{microtype}
-\\usepackage[margin=1in]{geometry}
-\\usepackage{amsmath,amssymb}
+\\usepackage{inconsolata}
 \\usepackage{graphicx}
+\\usepackage{amsmath,amssymb}
 \\usepackage{booktabs}
-\\usepackage[authoryear,round]{natbib}
-\\usepackage{hyperref}
 \\title{${texEscape(title)}}
-\\author{}
-\\date{\\today}
+\\author{Anonymous}
 \\begin{document}
 \\maketitle
 %% PAPERBOARD BODY
-${hasBib ? "\\bibliographystyle{plainnat}\n\\bibliography{references}\n" : ""}\\end{document}
+${hasBib ? "\\bibliography{references}\n" : ""}\\end{document}
 `;
+const ACL_FILES = ["acl.sty", "acl_natbib.bst"], ACL_RAW = "https://raw.githubusercontent.com/acl-org/acl-style-files/master/";
+const aclTried = {};
+async function ensureAclStyle(main, notes) {   // a template that uses {acl} gets the official style files if they're missing
+  if (!/\\usepackage\s*(\[[^\]]*\])?\s*\{acl\}/.test(main)) return;
+  for (const f of ACL_FILES) {
+    if (await fileAt(TEMPLATE_DIR + "/" + f)) continue;
+    if (aclTried[f]) { if (aclTried[f] !== true) notes.push(aclTried[f]); continue; }   // one try per session
+    aclTried[f] = true;
+    try { const r = await fetch(ACL_RAW + f); if (!r.ok) throw new Error(r.status); await writeAt(TEMPLATE_DIR + "/" + f, await r.text()); }
+    catch (e) { notes.push(aclTried[f] = `Couldn't download ${f} from the ACL style repository (${e.message || e}). Put it in ${TEMPLATE_DIR}/ by hand.`); }
+  }
+}
 const latexOpts = () => { meta.latex ||= {}; meta.latex.include ||= {}; return meta.latex; };
 const INCLUDABLE = ["Experiment", "References", "Note"];   // left out unless you tick them
 
@@ -2592,7 +2629,8 @@ function floatTex(b, p, kind) {   // a Figure or Table beat as a float
   const outs = listField(p.fields.output).map(relPath).filter(Boolean);
   const label = (p.fields.label || "").trim() || `${kind === "figure" ? "fig" : "tab"}:${slugify(b.title)}`;
   const env = /^(yes|true|full|wide)$/i.test(p.fields.wide || "") ? kind + "*" : kind;
-  const short = p.fields.caption ? mdInline(p.fields.caption) : "", long = p.body.trim() ? mdInline(p.body.trim().replace(/\n+/g, " ")) : short;
+  const capText = p.body.replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim().replace(/^(\*\*|__)?(Figure|Fig\.|Table)\s+[A-Z]?\d+[.:]?(\*\*|__)?[.:]?\s*/i, "").replace(/\n+/g, " ").trim();
+  const short = p.fields.caption ? mdInline(p.fields.caption) : "", long = capText ? mdInline(capText) : short;
   let inner;
   if (kind === "figure") {
     const pick = outs.find(o => /\.pdf$/i.test(o)) || outs.find(o => /\.(png|jpe?g)$/i.test(o)) || outs[0];
@@ -2639,8 +2677,10 @@ async function assemblePaper() {
   let body = buildBody();
   for (const m of [...body.matchAll(/^  %%CSV:(.+)%%$/gm)]) body = body.replace(m[0], (await csvTable(m[1])).replace(/^/gm, "  "));
   const tmplFile = await fileAt(MAIN_TEX), bib = await fileAt("References/references.bib");
-  let main = tmplFile ? await tmplFile.text() : DEFAULT_TEMPLATE(root.name, !!bib && /\\cite|\\citep|\\citet/.test(body));
   const notes = [];
+  if (!tmplFile) await writeAt(MAIN_TEX, DEFAULT_TEMPLATE(root.name, !!bib));   // the ACL default, written out so you can edit title and authors
+  let main = await readAt(MAIN_TEX);
+  await ensureAclStyle(main, notes);
   if (BODY_MARK.test(main)) main = main.replace(BODY_MARK, () => BODY_START + "\n" + body + BODY_END);
   else if (BODY_INPUT.test(main)) main = main.replace(BODY_INPUT, () => BODY_START + "\n" + body + BODY_END);
   else {
@@ -2649,6 +2689,9 @@ async function assemblePaper() {
     main = main.slice(0, at) + BODY_START + "\n" + body + BODY_END + "\n" + main.slice(at);
     notes.push(`${MAIN_TEX} has no “%% PAPERBOARD BODY” line, so the paper went in before the bibliography. Add that line where the paper belongs.`);
   }
+  // teach pdfLaTeX the characters it doesn't know by default, wherever they appear (math, references.bib, the template)
+  const bd = main.search(/^[ \t]*\\begin\{document\}/m);
+  if (bd >= 0) main = main.slice(0, bd) + unicodePreamble() + "\n" + main.slice(bd);
   const files = [];   // template files (except main.tex), at the top level as the template expects
   const tdir = await handleAt(TEMPLATE_DIR, "dir");
   if (tdir) for (const f of await listFiles(TEMPLATE_DIR, 4)) { if (f.path === MAIN_TEX) continue; files.push({ path: f.path.slice(TEMPLATE_DIR.length + 1), content: new Uint8Array(await (await fileAt(f.path)).arrayBuffer()) }); }
@@ -2662,7 +2705,12 @@ async function assemblePaper() {
     if (!found && !files.some(f => f.path === rp || f.path.startsWith(rp + "."))) missing.push(a);
   }
   if (missing.length) notes.push(`Not found in the project: ${missing.join(", ")}.`);
-  return { main, body, files, notes, template: tmplFile ? MAIN_TEX : null };
+  const odd = unknownChars(main.replace(unicodePreamble(), "") + (bib ? await bib.text() : ""));   // anything pdfLaTeX may still reject
+  if (odd.size) {
+    const where = [...odd.keys()].map(c => { const b = beats.find(x => x.text.includes(c)); return `“${c}” (U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")})${b ? ` in “${b.title}”` : ""}`; });
+    notes.push(`pdfLaTeX may not know these characters: ${where.join(", ")}. Replace them, or set Overleaf's compiler to XeLaTeX or LuaLaTeX (Menu > Settings > Compiler).`);
+  }
+  return { main, body, files, notes, template: MAIN_TEX };
 }
 
 /* ---------- the Overleaf panel: template, what to include, and the sync ---------- */
@@ -2676,7 +2724,7 @@ function showOverleafPanel() {
     <div class="olbox" id="x-ol"></div>`;
   panel.hidden = false; panel.querySelector(".x").onclick = closePanel;
   panel.querySelectorAll("[data-inc]").forEach(c => c.onchange = () => { latexOpts().include[c.dataset.inc] = c.checked; saveMetaSoon(); });
-  (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>.` : `No conference template yet, so a plain article is used. Ask Claude to set up the conference's official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
+  (async () => { const t = await fileAt(MAIN_TEX); const el = $("x-tmpl"); if (el) el.innerHTML = t ? `Template: <code>${MAIN_TEX}</code>.` : `No template yet: the ACL review template will be written to <code>${MAIN_TEX}</code> with the next export. For another venue, ask Claude to put its official template in <code>${TEMPLATE_DIR}/</code> (with a <code>%% PAPERBOARD BODY</code> line where the paper goes).`; })();
   renderOverleaf();
 }
 $("olbtn").onclick = () => { if (meta) showOverleafPanel(); };
@@ -2717,6 +2765,7 @@ function olExportSoon() { clearTimeout(olTimer); olTimer = setTimeout(() => { if
 async function olExport() {
   if (!(await olActive())) return;
   const paper = await assemblePaper();
+  if (J(paper.notes) !== J(olInfo.paperNotes || [])) { olInfo.paperNotes = paper.notes; renderOverleaf(); }
   const cur = await readAt(olDir() + "/main.tex"), sent = await readAt(OL_SENT + "/main.tex");
   if (cur != null && hasGitConflict(cur) && (olInfo.noBase || olClashes().length)) return;   // wait: git's conflict isn't merged yet, or you're still choosing
   if (cur != null && sent != null && !splitPaperTex(cur)) {   // the markers were taken out in Overleaf: don't overwrite their file
@@ -2770,7 +2819,9 @@ function applyOverleaf(baseTex, theirsTex, notes) {   // merge Overleaf's edits 
   return n;
 }
 async function applyTemplateEdits(baseTex, theirsTex, notes) {   // preamble and ending: back into export/template/main.tex
-  const B = splitPaperTex(baseTex), T = splitPaperTex(theirsTex); if (!B || !T || (B.pre === T.pre && B.post === T.post)) return;
+  const B = splitPaperTex(baseTex), T = splitPaperTex(theirsTex); if (!B || !T) return;
+  B.pre = stripUnicodePreamble(B.pre); T.pre = stripUnicodePreamble(T.pre);   // Paperboard's own block isn't part of the template
+  if (B.pre === T.pre && B.post === T.post) return;
   const tmpl = await readAt(MAIN_TEX);
   if (tmpl == null) { await writeAt(MAIN_TEX, T.pre + "%% PAPERBOARD BODY" + T.post); notes.push(`Overleaf's preamble is now the template, in ${MAIN_TEX}.`); return; }
   const m = tmpl.match(BODY_MARK); if (!m) { notes.push(`Overleaf changed the preamble, but ${MAIN_TEX} has no %% PAPERBOARD BODY line to line it up with.`); return; }
@@ -2847,7 +2898,8 @@ function wireCopy(box) {
 async function renderOverleaf() {
   const box = $("x-ol"); if (!box) return;
   const repo = await olRepo(), o = olOpts();
-  const notes = olInfo.notes.length ? `<div class="warn">${olInfo.notes.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "";
+  const all = [...olInfo.notes, ...(olInfo.paperNotes || [])];
+  const notes = all.length ? `<div class="warn">${all.map(n => `<p>${esc(n)}</p>`).join("")}</div>` : "";
   const term = `In Terminal, type <code>cd </code> (with a space), drag the <b>${esc(root.name)}</b> folder into the window and press Return; then paste this and press Return:`;
   if (!repo && !o.on) {   // 1. not started
     box.innerHTML = `<b>Overleaf</b> <span class="help">Paperboard writes the paper as LaTeX into a folder in the project, and you push that folder to Overleaf with git.</span>
