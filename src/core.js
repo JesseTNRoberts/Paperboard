@@ -304,6 +304,13 @@ const stripUnicodePreamble = t => String(t).replace(/\n?% ---- PAPERBOARD (?:UNI
 /* characters pdfLaTeX may still not know: beyond Latin, not in the table, not the usual typographic ones */
 const PDFTEX_SAFE = /[\u0000-ɏ–—‘’‚“”„†‡•…‰‹›€™ -ÿ]/;
 function unknownChars(t) { const out = new Map(); for (const c of String(t)) if (!PDFTEX_SAFE.test(c) && !(c in UNI_TEX) && !(c in UNI_ONEWAY)) out.set(c, (out.get(c) || 0) + 1); return out; }
+/* math written in Unicode (Greek letters, super- and subscripts, operators): LaTeX math ($…$) is better. Returns e.g. "μ×3, ²×2", or "" */
+const UNI_MATH = /[\u0370-\u03FF\u2070-\u209F\u2190-\u21FF\u2200-\u22FF\u2032\u2033\u00B1\u00D7\u00F7\u00B2\u00B3\u00B9\u00B7\u2212]/g;
+function unicodeMath(text) {
+  const plain = String(text || "").replace(/```[\s\S]*?```|`[^`\n]+`/g, ""), c = new Map();
+  for (const ch of plain.match(UNI_MATH) || []) c.set(ch, (c.get(ch) || 0) + 1);
+  return [...c].sort((a, b) => b[1] - a[1]).map(([ch, n]) => n > 1 ? `${ch}×${n}` : ch).join(", ");
+}
 const uniToTex = s => s.replace(UNI_ONEWAY_RE, c => UNI_ONEWAY[c]).replace(UNI_RE, c => UNI_TEX[c]);
 const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
 function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
@@ -554,4 +561,4 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, claudeLines, typedApproved, approveTyped, approveRange, stripClaude, hasClaude, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
+  mdToLatex, mdInline, texEscape, unicodeMath, claudeLines, typedApproved, approveTyped, approveRange, stripClaude, hasClaude, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };

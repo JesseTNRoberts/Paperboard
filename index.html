@@ -6,6 +6,8 @@
 <title>Paperboard</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E %3Crect width='512' height='512' rx='112' fill='#1f4f67'/%3E %3Crect x='64' y='72' width='120' height='368' rx='10' fill='#ffffff' opacity='.07'/%3E %3Crect x='328' y='72' width='120' height='368' rx='10' fill='#ffffff' opacity='.07'/%3E %3Crect x='76' y='132' width='96' height='66' rx='9' fill='#fbfcfc'/%3E %3Crect x='76' y='296' width='96' height='66' rx='9' fill='#fbfcfc' opacity='.55'/%3E %3Crect x='208' y='218' width='96' height='66' rx='9' fill='#fbfcfc'/%3E %3Crect x='340' y='150' width='96' height='66' rx='9' fill='#fbfcfc' opacity='.55'/%3E %3Crect x='340' y='318' width='96' height='66' rx='9' fill='#fbfcfc'/%3E %3Cpath d='M124 165 C 190 165, 196 251, 256 251 S 330 351, 380 351' fill='none' stroke='#e8a92a' stroke-width='22' stroke-linecap='round'/%3E %3Ccircle cx='124' cy='165' r='20' fill='#e8a92a'/%3E %3Cpath d='M372 318 L 420 351 L 372 384 Z' fill='#e8a92a'/%3E %3C/svg%3E">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* An infinite board. Sections are vertical bands with draggable boundaries, streams are horizontal lanes, beats are cards with tag tabs. */
@@ -64,6 +66,8 @@ svg#links marker path { fill:var(--ink-soft); stroke:none; }
 .tab.adjtab { background:var(--select); color:#1d2a2e; }
 .tab.claudetab { background:#1f3f8f; color:#fff; }
 .claudetext { color:#1f3f8f; }
+.mdprev .katex-display { margin:.6em 0; overflow-x:auto; overflow-y:hidden; }
+.mdprev code.tex { white-space:pre-wrap; }
 @media (prefers-color-scheme: dark) { .claudetext { color:#8fb0ff; } }
 /* zoomed far out, titles grow (--zf) so the whole document stays readable */
 #world[data-zoom="far"] .tab { font-size:calc(9px * var(--ts, 1) * var(--zf, 1)); padding:3px 8px 5px; max-width:none; }
@@ -672,6 +676,13 @@ const stripUnicodePreamble = t => String(t).replace(/\n?% ---- PAPERBOARD (?:UNI
 /* characters pdfLaTeX may still not know: beyond Latin, not in the table, not the usual typographic ones */
 const PDFTEX_SAFE = /[\u0000-ɏ–—‘’‚“”„†‡•…‰‹›€™ -ÿ]/;
 function unknownChars(t) { const out = new Map(); for (const c of String(t)) if (!PDFTEX_SAFE.test(c) && !(c in UNI_TEX) && !(c in UNI_ONEWAY)) out.set(c, (out.get(c) || 0) + 1); return out; }
+/* math written in Unicode (Greek letters, super- and subscripts, operators): LaTeX math ($…$) is better. Returns e.g. "μ×3, ²×2", or "" */
+const UNI_MATH = /[\u0370-\u03FF\u2070-\u209F\u2190-\u21FF\u2200-\u22FF\u2032\u2033\u00B1\u00D7\u00F7\u00B2\u00B3\u00B9\u00B7\u2212]/g;
+function unicodeMath(text) {
+  const plain = String(text || "").replace(/```[\s\S]*?```|`[^`\n]+`/g, ""), c = new Map();
+  for (const ch of plain.match(UNI_MATH) || []) c.set(ch, (c.get(ch) || 0) + 1);
+  return [...c].sort((a, b) => b[1] - a[1]).map(([ch, n]) => n > 1 ? `${ch}×${n}` : ch).join(", ");
+}
 const uniToTex = s => s.replace(UNI_ONEWAY_RE, c => UNI_ONEWAY[c]).replace(UNI_RE, c => UNI_TEX[c]);
 const REF_PREFIX = /^(fig|tab|sec|eq|lst|app|alg):/;
 function citeCmd(inner) {   // the inside of [ … ], Pandoc style: "see @a, p. 3; @b"
@@ -922,7 +933,7 @@ function latexToMd(tex) {
 
 if (typeof module !== "undefined") module.exports = { NOTES_MARK, BEAT_TYPES, parseBeat, beatParts, setPart, setField, getField, newBeatText, newId, countWords, isBlankBeat,
   merge3, mapCaret, lcsPairs, mergeMeta, hasMarkers, cleanTitle, titleOfFile, normType, MARK_MINE, MARK_THEIRS,
-  mdToLatex, mdInline, texEscape, claudeLines, typedApproved, approveTyped, approveRange, stripClaude, hasClaude, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
+  mdToLatex, mdInline, texEscape, unicodeMath, claudeLines, typedApproved, approveTyped, approveRange, stripClaude, hasClaude, uniToTex, unicodePreamble, stripUnicodePreamble, unknownChars, slugify, latexAssets, splitPaperTex, latexToMd, BODY_START, BODY_END, hasGitConflict, gitConflictSides };
 </script>
 <script>
 "use strict";
@@ -1382,7 +1393,7 @@ function docOrder() {   // section, then left to right, then top to bottom
 }
 const bodyWords = b => { const p = beatParts(b.text); return p.type === "Paragraph" ? countWords(p.body) : 0; };
 function buildDigest(order) {
-  const flags = { adjust: [], claude: [], empty: [], open: [], conflict: [], stale: [], missing: [] };
+  const flags = { adjust: [], claude: [], unimath: [], empty: [], open: [], conflict: [], stale: [], missing: [] };
   let n = 0;
   const secs = order.map(({ act, beats: list }, si) => {
     const w = list.reduce((s, b) => s + bodyWords(b), 0);
@@ -1393,6 +1404,7 @@ function buildDigest(order) {
       if (isBlankBeat(p)) flags.empty.push(b.title);
       if (/\[Open\]/i.test(b.text)) flags.open.push(b.title);
       if (hasClaude(p.body)) flags.claude.push(b.title);
+      const um = unicodeMath(p.body); if (um) flags.unimath.push(`${b.title} (${um})`);
       if (conflicts[b.key]) flags.conflict.push(b.title);
       const li = linked[b.key]; if (li?.stale) flags.stale.push(`${b.title} (changed: ${li.why.join(", ")})`); if (li?.missing) flags.missing.push(b.title);
       const deps = [inputsOf(b.key).length ? "depends on: " + inputsOf(b.key).map(l => beatByKey(l.from).title).join(", ") : null, feedsOf(b.key).length ? "used by: " + feedsOf(b.key).map(l => beatByKey(l.to).title).join(", ") : null];
@@ -1404,7 +1416,7 @@ function buildDigest(order) {
   return `# Digest\n\n_Generated by the storyboard ${nowLabel()}. Do not edit: it is rewritten automatically._\n\n` +
     `Every live beat in document order (section, then left to right, then top to bottom), with type, stream, tags, status and full text.\n\n` +
     `**Sections:** ${order.map(o => o.act.name).join(", ")}\n\n**Streams:** ${meta.lanes.map(l => l.name).join(", ")}\n\n**Tags:** ${meta.tags.map(t => t.name).join(", ") || "none"}\n\n` +
-    `## Checks\n\n${[list("Beats with a Claude adjust", flags.adjust), list("Beats with Claude's text not yet approved ({++ … ++})", flags.claude), list("Empty beats", flags.empty), list("Beats with [Open] items", flags.open),
+    `## Checks\n\n${[list("Beats with a Claude adjust", flags.adjust), list("Beats with Claude's text not yet approved ({++ … ++})", flags.claude), list("Beats with math written in Unicode characters (write it as LaTeX math, $…$, instead)", flags.unimath), list("Empty beats", flags.empty), list("Beats with [Open] items", flags.open),
       list("Stale figures and experiments (inputs or code changed after the output or last run)", flags.stale), list("Figures and tables whose output file doesn't exist", flags.missing),
       list("Beats waiting for the author's choice between two versions", flags.conflict), list("Marked for deletion", toDelete.map(m => m.title))].join("\n")}\n\n` + secs;
 }
@@ -1920,12 +1932,26 @@ function fallbackMd(src) {   // used when the Markdown library didn't load
     return `<p>${inline(p).replace(/\n/g, "<br>")}</p>`;
   }).join("");
 }
+/* LaTeX math in a beat ($…$, $$…$$, \(…\), \[…\], and equation-like environments) is drawn with KaTeX; code is left alone */
+const MATH_RE = /```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\\begin\{(equation|align|gather|multline|eqnarray)(\*?)\}[\s\S]*?\\end\{\1\2\}|(?<![\\$])\$(?=[^\s$])(?:[^$\\\n]|\\.)+?(?<=\S)\$(?!\d)/g;
+function mathHtml(m) {
+  let tex, display;
+  if (m.startsWith("$$")) { tex = m.slice(2, -2); display = true; }
+  else if (m.startsWith("\\[")) { tex = m.slice(2, -2); display = true; }
+  else if (m.startsWith("\\(")) { tex = m.slice(2, -2); display = false; }
+  else if (m.startsWith("\\begin")) { tex = m.replace(/^\\begin\{(\w+)\*?\}/, "\\begin{$1*}").replace(/\\end\{(\w+)\*?\}$/, "\\end{$1*}").replace(/\\label\{[^}]*\}/g, "").replace(/\\begin\{(equation|multline)\*\}([\s\S]*)\\end\{\1\*\}/, "$2").replace(/\\begin\{eqnarray\*\}/, "\\begin{align*}").replace(/\\end\{eqnarray\*\}/, "\\end{align*}"); display = true; }
+  else { tex = m.slice(1, -1); display = false; }
+  if (window.katex) { try { return window.katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: "ignore", trust: false }); } catch (e) {} }
+  return `<code class="tex">${esc(m)}</code>`;
+}
 function renderMd(src) {   // Claude's unapproved text ({++ … ++}) shows in dark blue
-  const pre = claudeLines(src || "").replace(/\{\+\+/g, "\uE006").replace(/\+\+\}/g, "\uE007");
+  const maths = [];
+  let pre = claudeLines(src || "").replace(MATH_RE, m => m.startsWith("`") ? m : "\uE010" + (maths.push(m) - 1) + "\uE011");
+  pre = pre.replace(/\{\+\+/g, "\uE006").replace(/\+\+\}/g, "\uE007");
   let html = null;
   if (window.marked) { try { html = window.marked.parse(pre, { breaks: true, gfm: true }); } catch (e) {} }
   if (html == null) html = fallbackMd(pre);
-  return html.replace(/\uE006/g, '<span class="claudetext">').replace(/\uE007/g, "</span>");
+  return html.replace(/\uE006/g, '<span class="claudetext">').replace(/\uE007/g, "</span>").replace(/\uE010(\d+)\uE011/g, (x, i) => mathHtml(maths[+i]));
 }
 
 /* ================= panels ================= */

@@ -213,4 +213,8 @@ t("what the author types inside Claude's text is the author's", () => {
   assert.strictEqual(C.approveRange("{++abc def++} g", 6, 9), "{++abc++} de{++f++} g");
   assert.strictEqual(C.stripClaude("{++abc++} x {++y++}"), "abc x y");
 });
+t("math written in Unicode is found (for the digest), but not in code", () => {
+  assert.strictEqual(C.unicodeMath("Spearman ρ = −0.78 and ρ again, E[φ′²], `σ code`"), "ρ×2, −, φ, ′, ²");
+  assert.strictEqual(C.unicodeMath("Café, naïve — “quoted” 25%"), "");
+});
 console.log(`${n - fail}/${n} tests passed`); process.exit(fail ? 1 : 0);

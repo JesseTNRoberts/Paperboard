@@ -33,6 +33,11 @@ with sync_playwright() as p:
         MARKED = open(MARKED_JS).read()
         ctx.route("**/marked.min.js", lambda r: r.fulfill(body=MARKED, content_type="text/javascript"))
     ctx.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
+    if os.path.exists("node_modules/katex/dist/katex.min.js"):   # npm install katex@0.16.9: the pinned KaTeX, served locally
+        KATEX_JS, KATEX_CSS = open("node_modules/katex/dist/katex.min.js").read(), open("node_modules/katex/dist/katex.min.css").read()
+        ctx.route("**/KaTeX/0.16.9/katex.min.js", lambda r: r.fulfill(body=KATEX_JS, content_type="text/javascript"))
+        ctx.route("**/KaTeX/0.16.9/katex.min.css", lambda r: r.fulfill(body=KATEX_CSS, content_type="text/css"))
+        ctx.route("**/KaTeX/0.16.9/fonts/**", lambda r: r.fulfill(path="node_modules/katex/dist/fonts/" + r.request.url.split("/fonts/")[1]))
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -480,6 +485,13 @@ with sync_playwright() as p:
     check("words the author types inside Claude's text are the author's", ok, ev("(p) => T.read(p)", lim)[-200:])
     page.click('[data-view="preview"]'); page.wait_for_timeout(300)
     check("the preview shows Claude's text in its own colour", page.locator("#f-prev .claudetext").count() >= 2 and "coastal" not in " ".join(page.locator("#f-prev .claudetext").all_inner_texts()))
+    # LaTeX math in a beat is drawn in the preview; code is left alone
+    MATH_MD = "\n\nInline $\\rho = -0.78$ and $\\sigma_b^2$, display:\n\n$$\\mathbb{E}[\\phi'(z)^2] = \\sum_i x_i$$\n\n`$x$ in code` costs $5 and $10."
+    ev("(md) => { const ta = document.getElementById('f-text'); ta.value += md; ta.dispatchEvent(new Event('input')); }", MATH_MD)
+    page.wait_for_timeout(300)
+    check("the preview draws inline and display LaTeX math", page.locator("#f-prev .katex").count() >= 3 and page.locator("#f-prev .katex-display").count() == 1, page.inner_html("#f-prev")[-300:])
+    check("…but not math-like text in code, or prices", "$x$ in code" in page.inner_text("#f-prev code") and "$5 and $10" in page.inner_text("#f-prev"))
+    ev("""() => { const ta = document.getElementById('f-text'); ta.value = ta.value.replace(/\\n\\nInline [\\s\\S]*$/, ''); ta.dispatchEvent(new Event('input')); }""")
     page.click('[data-view="write"]')
     page.click("#f-approve"); page.wait_for_timeout(200)
     ok = wait_file(lim, "t.includes('A second coastal city would test whether the model transfers.') && !t.includes('{++')")

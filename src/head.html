@@ -6,6 +6,8 @@
 <title>Paperboard</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E %3Crect width='512' height='512' rx='112' fill='#1f4f67'/%3E %3Crect x='64' y='72' width='120' height='368' rx='10' fill='#ffffff' opacity='.07'/%3E %3Crect x='328' y='72' width='120' height='368' rx='10' fill='#ffffff' opacity='.07'/%3E %3Crect x='76' y='132' width='96' height='66' rx='9' fill='#fbfcfc'/%3E %3Crect x='76' y='296' width='96' height='66' rx='9' fill='#fbfcfc' opacity='.55'/%3E %3Crect x='208' y='218' width='96' height='66' rx='9' fill='#fbfcfc'/%3E %3Crect x='340' y='150' width='96' height='66' rx='9' fill='#fbfcfc' opacity='.55'/%3E %3Crect x='340' y='318' width='96' height='66' rx='9' fill='#fbfcfc'/%3E %3Cpath d='M124 165 C 190 165, 196 251, 256 251 S 330 351, 380 351' fill='none' stroke='#e8a92a' stroke-width='22' stroke-linecap='round'/%3E %3Ccircle cx='124' cy='165' r='20' fill='#e8a92a'/%3E %3Cpath d='M372 318 L 420 351 L 372 384 Z' fill='#e8a92a'/%3E %3C/svg%3E">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* An infinite board. Sections are vertical bands with draggable boundaries, streams are horizontal lanes, beats are cards with tag tabs. */
@@ -64,6 +66,8 @@ svg#links marker path { fill:var(--ink-soft); stroke:none; }
 .tab.adjtab { background:var(--select); color:#1d2a2e; }
 .tab.claudetab { background:#1f3f8f; color:#fff; }
 .claudetext { color:#1f3f8f; }
+.mdprev .katex-display { margin:.6em 0; overflow-x:auto; overflow-y:hidden; }
+.mdprev code.tex { white-space:pre-wrap; }
 @media (prefers-color-scheme: dark) { .claudetext { color:#8fb0ff; } }
 /* zoomed far out, titles grow (--zf) so the whole document stays readable */
 #world[data-zoom="far"] .tab { font-size:calc(9px * var(--ts, 1) * var(--zf, 1)); padding:3px 8px 5px; max-width:none; }
